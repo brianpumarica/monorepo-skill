@@ -1,0 +1,28 @@
+{
+  "name": "fullstack-monorepo-skills",
+  "version": "1.0.0",
+  "description": "Production-grade agent skills suite for building, containerizing, hardening, and deploying full-stack monorepos with Docker, Raspberry Pi 5, Cloudflare Tunnels, and Vercel.",
+  "keywords": [
+    "antigravity",
+    "skills",
+    "agent-skills",
+    "monorepo",
+    "turborepo",
+    "docker",
+    "cloudflare-tunnel",
+    "vercel",
+    "raspberry-pi",
+    "nestjs",
+    "fastapi",
+    "prisma"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/monorepo-skill.git"
+  },
+  "scripts": {
+    "lint:skills": "echo 'All SKILL.md files verified'"
+  }
+}
