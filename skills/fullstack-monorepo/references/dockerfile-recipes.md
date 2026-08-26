@@ -32,7 +32,11 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter api exec prisma generate 2>/dev/null || true
 RUN pnpm --filter api build
+# Compile TypeScript seeder so it can run in production without devDependencies/ts-node
+RUN if [ -f apps/api/prisma/seed.ts ]; then npx tsc apps/api/prisma/seed.ts --outDir apps/api/dist/prisma --target ES2022 --module CommonJS 2>/dev/null || true; fi
 RUN pnpm --filter api --prod deploy /prod/api
+# Ensure compiled dist folder is included in deployed bundle
+RUN cp -r apps/api/dist /prod/api/dist 2>/dev/null || true
 
 FROM node:22-alpine AS production
 WORKDIR /app

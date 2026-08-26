@@ -145,3 +145,21 @@ networks:
   app-net:
     driver: bridge
 ```
+
+---
+
+## 3. Production Deployment & Re-creation Command
+
+When deploying updates on Raspberry Pi / Linux VPS (either via Self-Hosted Runner or CLI), ALWAYS use `--force-recreate --remove-orphans`:
+
+```bash
+# Build latest images and force recreation of running containers:
+docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
+
+# Check status and health of all production services:
+docker compose -f docker-compose.prod.yml ps
+
+# View live backend logs:
+docker logs -f ${PROJECT_NAME:-app}-backend-prod
+```
+

@@ -133,7 +133,7 @@ export const prisma = new PrismaClient({
 
 ## 5. Production Entrypoint (`apps/api/entrypoint.sh`)
 
-Ensure migrations run automatically before the API process launches:
+Ensure migrations and compiled seeders run automatically before the API process launches:
 
 ```bash
 #!/bin/sh
@@ -148,6 +148,33 @@ echo "✅ Database connection established."
 echo "🚀 Applying database migrations..."
 npx prisma migrate deploy
 
+echo "🌱 Running production database seed (if present)..."
+if [ -f "./dist/prisma/seed.js" ]; then
+  node dist/prisma/seed.js || true
+elif [ -f "./dist/seed.js" ]; then
+  node dist/seed.js || true
+elif [ -f "./prisma/seed.ts" ]; then
+  npx tsx prisma/seed.ts 2>/dev/null || true
+fi
+
 echo "🌟 Starting application server..."
 exec "$@"
 ```
+
+---
+
+## 6. Production Seeder Compilation & Security Standard
+
+### Compilation in Dockerfile (Build Stage):
+Because production Docker containers prune `devDependencies` (omitting `ts-node` and `tsx`), compile the seed script into JavaScript during the build stage:
+
+```dockerfile
+# In apps/api/Dockerfile (build stage)
+RUN if [ -f apps/api/prisma/seed.ts ]; then npx tsc apps/api/prisma/seed.ts --outDir apps/api/dist/prisma --target ES2022 --module CommonJS 2>/dev/null || true; fi
+```
+
+### Seeder Security Rules (`apps/api/prisma/seed.ts`):
+1. **No Hardcoded Passwords**: Never write fallback default passwords (e.g. `'admin123'`) in the code.
+2. **Environment Variable Enforcement**: Read `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `process.env`. If absent in production, skip or abort gracefully with a security warning rather than provisioning a vulnerable account.
+3. **Idempotency**: Use `upsert` so re-deployments with `--force-recreate` never duplicate or corrupt existing records.
+

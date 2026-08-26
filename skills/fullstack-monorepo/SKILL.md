@@ -15,6 +15,9 @@ Every repository following this standard MUST adhere to this directory hierarchy
 
 ```
 <project-root>/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml           # Dual CI/CD: Vercel CLI (Frontend) + Pi Runner (Backend)
 ├── .agents/
 │   └── skills/                  # Local workspace skills
 ├── apps/
@@ -68,7 +71,7 @@ docker compose up -d database backend
 ### Principle 3: Production on Raspberry Pi / VPS (`docker-compose.prod.yml`)
 Production runs optimized built images with no source code mounts, non-root users, and minimal resource footprints:
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
 ```
 
 ---
@@ -102,32 +105,29 @@ All Dockerfiles MUST follow these 5 rules:
 
 ## 5. Deployment Architecture: Raspberry Pi + Cloudflare Tunnel + Vercel
 
-```
-  [User Browser]
-       │
-       ├── (1) HTTPS Web Traffic ──────> [Vercel / Netlify]
-       │                                 (Static Frontend / SSR)
-       │                                 Env: VITE_API_URL=https://api.domain.com
-       │
-       └── (2) HTTPS API Requests ────> [Cloudflare Edge / Tunnel]
-                                               │ (Encrypted Zero-Trust Tunnel)
-                                               ▼
-                                     [Raspberry Pi / Home Server]
-                                     ├── cloudflared (Tunnel Daemon)
-                                     ├── backend-prod (Port 3004)
-                                     └── database (PostgreSQL + pgvector)
+```mermaid
+graph TD
+    A[Push / Merge a main] --> B[GitHub Actions Pipeline]
+    B -->|Job 1: ubuntu-latest| C[Vercel CLI]
+    C -->|Compilación y Despliegue| D[Frontend Next.js / Vite en Vercel]
+    B -->|Job 2: self-hosted, rpi5| E[Raspberry Pi 5 Runner]
+    E -->|docker compose --force-recreate| F[Backend + PostgreSQL en Docker]
+    D -->|HTTPS REST API / Cloudflare Edge| G[https://api.tudominio.com]
+    G --> F
 ```
 
-1. **Raspberry Pi**: Runs `docker-compose.prod.yml` (Database + Backend).
-2. **Cloudflare Tunnel (`cloudflared`)**: Exposes the local backend port to `https://api.tudominio.com` without opening router ports or exposing public IPs.
-3. **Vercel**: Hosts `apps/web`. Environment variables (`NEXT_PUBLIC_API_URL` or `VITE_API_URL`) point to `https://api.tudominio.com`.
-4. **CORS**: Backend allows `*.vercel.app` and your custom domain.
+1. **Dual CI/CD Pipeline (`.github/workflows/deploy.yml`)**:
+   - **Frontend (`deploy-frontend`)**: Deployed via **Vercel CLI** on `ubuntu-latest`. Bypasses Vercel Hobby plan limitations for private organization repos without requiring a Pro subscription. Passes `NEXT_PUBLIC_API_URL` during build and uses Node 22 (for pnpm 10 `node:sqlite`).
+   - **Backend (`deploy-backend`)**: Deployed on **Raspberry Pi 5 Self-Hosted Runner** (`[self-hosted, rpi5]`). Pulls code into an isolated runner workspace, preserves local `.env`, and runs `docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans`.
+2. **Cloudflare Tunnel (`cloudflared`)**: Exposes backend port 3004 to `https://api.tudominio.com` with Zero Trust security, SSL termination, and zero opened router ports.
+3. **CORS**: Backend allows `*.vercel.app` and custom frontend domains.
 
 ---
 
 ## 6. Detailed Reference Docs
 
 For copy-paste ready, minimal-comment templates, refer to:
+- [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md)
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md)
 - [Docker Compose Recipes](./references/docker-compose-recipes.md)
 - [Dockerfile Recipes](./references/dockerfile-recipes.md)

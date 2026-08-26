@@ -39,23 +39,19 @@ npx skills add <github-username>/monorepo-skill@turborepo-orchestration
 ## 🏛️ Architecture Overview
 
 ```
- [User Browser]
-      │
-      ├── (1) HTTPS Web Traffic ──────> [Vercel / Netlify]
-      │                                 (Static Frontend / SSR)
-      │                                 Env: VITE_API_URL=https://api.domain.com
-      │
-      └── (2) HTTPS API Requests ────> [Cloudflare Edge / Tunnel]
-                                              │ (Encrypted Zero-Trust QUIC)
-                                              ▼
-                                    [Raspberry Pi 5 / Home Server]
-                                    ┌────────────────────────────────┐
-                                    │ Docker Network: `app-net`      │
-                                    │                                │
-                                    │ ├── cloudflared (Tunnel Daemon)│
-                                    │ ├── backend-prod (Port 3004)   │
-                                    │ └── database (PostgreSQL 16)   │
-                                    └────────────────────────────────┘
+ [Push / Merge to main] ────> [GitHub Actions CI/CD]
+                                     │
+         ┌───────────────────────────┴───────────────────────────┐
+         │ (Job 1: ubuntu-latest)                                │ (Job 2: self-hosted, rpi5)
+         ▼                                                       ▼
+ [Vercel CLI Deploy]                                     [Raspberry Pi 5 Server]
+         │                                               ┌────────────────────────────────┐
+         ▼                                               │ Docker Network: `app-net`      │
+ [Vercel Edge / CDN]                                     │                                │
+ (Next.js / Vite SPA)                                    │ ├── cloudflared (Tunnel Daemon)│
+ Env: NEXT_PUBLIC_API_URL ──────( HTTPS REST / QUIC )───>│ ├── backend-prod (Port 3004)   │
+                                                         │ └── database (PostgreSQL 16)   │
+                                                         └────────────────────────────────┘
 ```
 
 ---
@@ -65,14 +61,14 @@ npx skills add <github-username>/monorepo-skill@turborepo-orchestration
 ### 🌟 Mother Skill (Orchestrator)
 | Skill | Path | Description |
 | :--- | :--- | :--- |
-| **`fullstack-monorepo`** | [`skills/fullstack-monorepo/`](./skills/fullstack-monorepo/SKILL.md) | Framework-agnostic Golden Layout, dev-first zero-flag Docker Compose, cross-platform hot-reload matrix (Vite, Next.js, Expo, NestJS, FastAPI). |
+| **`fullstack-monorepo`** | [`skills/fullstack-monorepo/`](./skills/fullstack-monorepo/SKILL.md) | Framework-agnostic Golden Layout, dual-track CI/CD (Vercel CLI + Pi Runner), dev-first zero-flag Docker Compose, cross-platform hot-reload matrix (Vite, Next.js, Expo, NestJS, FastAPI). |
 
 ### 🛡️ Core Skills (Essential Infrastructure)
 | Skill | Path | Description |
 | :--- | :--- | :--- |
 | **`cloudflare-tunnel`** | [`skills/cloudflare-tunnel/`](./skills/cloudflare-tunnel/SKILL.md) | Auto-configured `cloudflared` service in Docker Compose, Zero Trust Access protection (`/docs`), remote TCP database tunneling, and CORS. |
-| **`vercel-monorepo-deploy`** | [`skills/vercel-monorepo-deploy/`](./skills/vercel-monorepo-deploy/SKILL.md) | Monorepo frontend deployment, `turbo-ignore` build skipping, SPA client-side routing in `vercel.json`, and API wiring. |
-| **`docker-hardening`** | [`skills/docker-hardening/`](./skills/docker-hardening/SKILL.md) | Linux security hardening (`cap_drop: [ALL]`, `no-new-privileges: true`), non-root execution, RAM/CPU limits for Raspberry Pi 5, BuildKit caching. |
+| **`vercel-monorepo-deploy`** | [`skills/vercel-monorepo-deploy/`](./skills/vercel-monorepo-deploy/SKILL.md) | Monorepo frontend deployment via Vercel CLI (free organization workaround), `turbo-ignore`, client-side routing, `NEXT_PUBLIC` build-time injection, and API wiring. |
+| **`docker-hardening`** | [`skills/docker-hardening/`](./skills/docker-hardening/SKILL.md) | Linux security hardening (`cap_drop: [ALL]`, `no-new-privileges: true`), non-root execution, RAM/CPU limits for Raspberry Pi 5, self-hosted runner security, and BuildKit caching. |
 
 ### ⚙️ Optional Skills (Tech-Stack Dependent)
 | Skill | Path | Description |

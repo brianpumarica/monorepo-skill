@@ -166,3 +166,23 @@ docker-compose*.yml
 README.md
 docs/
 ```
+
+---
+
+## 7. Self-Hosted Runner & Production Host Hardening
+
+When deploying via a **GitHub Self-Hosted Runner** on Raspberry Pi / Linux Server:
+
+1. **Strict File Permissions**: Ensure `.env` is locked down to the runner user:
+   ```bash
+   chmod 600 .env
+   ```
+2. **Workspace Isolation**: The runner operates in an isolated folder per repository:
+   `/home/github-runner/actions-runner/_work/<repository-name>/<repository-name>/`
+   Do not mix shared `.env` files across different repository folders.
+3. **Container State Re-creation**: Always deploy with `--force-recreate --remove-orphans` so configuration or environment updates are forcefully picked up:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
+   ```
+4. **Remove Unused SSH Secrets**: Self-hosted runners execute locally inside the machine. Remove external SSH secrets (`RASPI_SSH_KEY`, `RASPI_HOST`, `RASPI_USER`) to minimize the attack surface.
+

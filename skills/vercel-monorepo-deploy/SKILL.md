@@ -1,6 +1,6 @@
 ---
 name: vercel-monorepo-deploy
-description: Best practices, configurations, and automation runbook for deploying monorepo frontends (Next.js, Vite SPAs, React) to Vercel. Covers turbo-ignore build skipping, client-side routing rewrites in vercel.json, monorepo root directory setup, remote API environment wiring with Cloudflare Tunnels, and build performance optimization. Use whenever configuring or debugging Vercel deployments from a pnpm/npm monorepo.
+description: Best practices, configurations, and automation runbook for deploying monorepo frontends (Next.js, Vite SPAs, React) to Vercel. Covers Vercel CLI GitHub Actions pipelines (free organization bypass), turbo-ignore build skipping, client-side routing rewrites in vercel.json, monorepo root directory setup, NEXT_PUBLIC build-time injection, remote API environment wiring with Cloudflare Tunnels, and Node 22/pnpm 10 compatibility. Use whenever configuring or debugging Vercel deployments from a pnpm/npm monorepo.
 ---
 
 # Vercel Monorepo Frontend Deployment Runbook
@@ -24,9 +24,85 @@ When importing the monorepo Git repository into Vercel, set these project settin
 
 ---
 
-## 2. Preventing Unnecessary Builds (`turbo-ignore`)
+## 2. Automated Deployment with Vercel CLI (GitHub Actions)
 
-To avoid wasting Vercel build minutes and prevent frontend deployments when only `apps/api` or `docker/` changes:
+### Why Vercel CLI over Native Git Integration?
+- **Hobby Plan Restriction**: Vercel prohibits direct Git repo connections for repositories that are **both private and owned by a GitHub Organization** (demands upgrade to Pro).
+- **Free Workaround**: Deploying via **Vercel CLI in GitHub Actions** compiles the bundle and uploads it directly via the Vercel API without organization paywalls.
+
+### Required Secrets in GitHub (`Settings > Secrets and variables > Actions`):
+- `VERCEL_TOKEN`: Personal token from *Vercel Account Settings > Tokens*.
+- `VERCEL_PROJECT_ID`: ID from *Vercel Project Settings > General*.
+- `VERCEL_ORG_ID`: Account/Team ID from *Vercel Project Settings > General*.
+- `NEXT_PUBLIC_API_URL` / `VITE_API_URL`: Cloudflare Tunnel URL (e.g. `https://api.tudominio.com`).
+
+### Production Workflow Step (`.github/workflows/deploy.yml`):
+```yaml
+deploy-frontend:
+  name: Build & Deploy Frontend to Vercel
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js (Node 22 required for pnpm 10 / node:sqlite)
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install pnpm & Vercel CLI
+      run: npm install --global pnpm@latest vercel@latest
+
+    - name: Pull Vercel Environment Information
+      run: |
+        vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        if [ -f .vercel/.env.production.local ]; then
+          cp .vercel/.env.production.local apps/web/.env.production.local 2>/dev/null || cp .vercel/.env.production.local frontend/.env.production.local 2>/dev/null || true
+        fi
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    - name: Build Project Artifacts
+      run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+
+    - name: Deploy Prebuilt Artifacts to Vercel
+      run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+```
+
+---
+
+## 3. Critical Monorepo Pitfalls & Solutions
+
+### 1. `NEXT_PUBLIC_*` Build-Time Ingestion (Error 404 on Auth/API)
+- **Problem**: In Next.js, `NEXT_PUBLIC_*` variables are baked into the static browser bundle at **build time**. If omitted during `vercel build`, client API requests default to relative paths on the Vercel domain (`https://app.vercel.app/auth/login` -> 404).
+- **Solution**: Pass `NEXT_PUBLIC_API_URL` directly in the `env` blocks of `vercel build` and `vercel deploy`, and copy `.vercel/.env.production.local` to `apps/web/.env.production.local`.
+
+### 2. Monorepo Root Duplication (`apps/web/apps/web/package.json ENOENT`)
+- **Problem**: `Error: ENOENT: no such file or directory, open '.../apps/web/apps/web/package.json'`.
+- **Causa**: Vercel project already configured `Root Directory: apps/web`. Adding `working-directory: ./apps/web` in GitHub Actions causes the CLI to duplicate the path.
+- **Solution**: Run all Vercel CLI commands strictly from the **monorepo root** without `working-directory`.
+
+### 3. Node.js 22 & pnpm 10 Compatibility (`node:sqlite`)
+- **Problem**: `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: node:sqlite` during CI build.
+- **Causa**: pnpm v10+ uses `node:sqlite`, which requires Node.js v22.13+.
+- **Solution**: Always configure `actions/setup-node@v4` with `node-version: 22`.
+
+---
+
+## 4. Preventing Unnecessary Builds (`turbo-ignore`)
+
+To avoid wasting Vercel build minutes when only backend or docker files change:
 
 ### In Vercel Project Settings > Git > Ignored Build Step:
 Select **Custom** and enter:
@@ -34,14 +110,12 @@ Select **Custom** and enter:
 npx turbo-ignore web
 ```
 
-### How it works:
-- `turbo-ignore` checks the commit diff against the monorepo dependency graph.
 - If changes only affected `apps/api` or unrelated files, the build exits with code `0` (canceled) with zero cost.
 - If changes touched `apps/web`, `packages/types`, or `packages/tsconfig`, Vercel proceeds with the deployment.
 
 ---
 
-## 3. SPA Client-Side Routing (`vercel.json`)
+## 5. SPA Client-Side Routing (`vercel.json`)
 
 For Single Page Applications (**Vite**, React Router, Vue Router, Svelte) to prevent 404 errors on browser page refreshes:
 
@@ -73,7 +147,7 @@ Create `apps/web/vercel.json`:
 
 ---
 
-## 4. Environment Variables Wiring
+## 6. Environment Variables Wiring
 
 Connect the Vercel frontend to the backend running on Raspberry Pi / Cloudflare Tunnel:
 
@@ -99,7 +173,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3004';
 
 ---
 
-## 5. Just-In-Time (JIT) Monorepo Package Transpilation
+## 7. Just-In-Time (JIT) Monorepo Package Transpilation
 
 To consume shared packages (`@repo/types`, `@repo/ui`) directly without needing a separate compilation step (`tsup`/`tsc`) during Vercel builds:
 
@@ -132,10 +206,14 @@ export default defineConfig({
 
 ---
 
-## 6. Deployment Checklist
+## 8. Deployment Checklist
 
 - [ ] Vercel Root Directory set to `apps/web` with "Include files outside Root" checked.
+- [ ] Vercel CLI secrets configured in GitHub (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
+- [ ] Node.js version set to `22` in CI workflow (`actions/setup-node@v4`).
+- [ ] `NEXT_PUBLIC_API_URL` or `VITE_API_URL` passed in `vercel build` and `vercel deploy` steps.
+- [ ] Vercel CLI executed from monorepo root without `working-directory` duplicate flag.
 - [ ] Ignored Build Step configured with `npx turbo-ignore web`.
 - [ ] `vercel.json` created in `apps/web` (for Vite/SPA apps).
-- [ ] `VITE_API_URL` or `NEXT_PUBLIC_API_URL` set to Cloudflare Tunnel domain.
 - [ ] Backend CORS configured to accept `https://*.vercel.app` and custom domain.
+
