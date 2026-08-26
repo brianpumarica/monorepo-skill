@@ -21,3 +21,10 @@ pnpm-debug.log*
 *.tmp
 *.bak
 .temp/
+
+# Skills CLI & Agent test installs
+.agents/
+.claude/
+agent/
+skills-lock.json
+
