@@ -1,6 +1,6 @@
 # Full-Stack Monorepo Agent Skills Suite 🚀
 
-[![skills.sh](https://img.shields.io/badge/skills.sh-indexed-blue)](https://skills.sh)
+[![skills.sh](https://skills.sh/b/brianpumarica/monorepo-skill)](https://www.skills.sh/brianpumarica/monorepo-skill)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Compatibility](https://img.shields.io/badge/Compatibility-Antigravity%20%7C%20Cursor%20%7C%20Claude%20Code%20%7C%20Copilot-orange)](#compatibility)
 
@@ -8,30 +8,41 @@ A comprehensive, production-grade suite of **Agent Skills** for scaffolding, orc
 
 Designed for **Progressive Disclosure**: only the relevant skills are activated depending on your tech stack, avoiding context bloat and maximizing AI precision.
 
+> 🌐 **Explore on skills.sh:** [https://www.skills.sh/brianpumarica/monorepo-skill](https://www.skills.sh/brianpumarica/monorepo-skill)
+
 ---
 
 ## 📦 Quick Installation via `skills.sh`
 
-### Install the Complete Suite (All Skills):
+### Install the Complete Suite (All 8 Skills):
 ```bash
 npx skills add brianpumarica/monorepo-skill
+```
+
+### Or Install for Specific Agents:
+```bash
+# Install for all supported agents (Cursor, Claude Code, Antigravity, Copilot, etc.)
+npx skills add brianpumarica/monorepo-skill --all
+
+# Install globally in your system
+npx skills add brianpumarica/monorepo-skill -g
 ```
 
 ### Or Install Individual Skills a la Carte:
 ```bash
 # Mother Skill (Layout, Orchestration, Hot-Reload Matrix)
-npx skills add brianpumarica/monorepo-skill@fullstack-monorepo
+npx skills add brianpumarica/monorepo-skill --skill fullstack-monorepo
 
 # Core Infrastructure Skills
-npx skills add brianpumarica/monorepo-skill@cloudflare-tunnel
-npx skills add brianpumarica/monorepo-skill@vercel-monorepo-deploy
-npx skills add brianpumarica/monorepo-skill@docker-hardening
+npx skills add brianpumarica/monorepo-skill --skill cloudflare-tunnel
+npx skills add brianpumarica/monorepo-skill --skill vercel-monorepo-deploy
+npx skills add brianpumarica/monorepo-skill --skill docker-hardening
 
 # Tech-Specific Skills
-npx skills add brianpumarica/monorepo-skill@prisma-database
-npx skills add brianpumarica/monorepo-skill@nestjs-backend
-npx skills add brianpumarica/monorepo-skill@fastapi-backend
-npx skills add brianpumarica/monorepo-skill@turborepo-orchestration
+npx skills add brianpumarica/monorepo-skill --skill prisma-database
+npx skills add brianpumarica/monorepo-skill --skill nestjs-backend
+npx skills add brianpumarica/monorepo-skill --skill fastapi-backend
+npx skills add brianpumarica/monorepo-skill --skill turborepo-orchestration
 ```
 
 ---
