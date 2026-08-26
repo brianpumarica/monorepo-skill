@@ -14,24 +14,24 @@ Designed for **Progressive Disclosure**: only the relevant skills are activated 
 
 ### Install the Complete Suite (All Skills):
 ```bash
-npx skills add <github-username>/monorepo-skill
+npx skills add brianpumarica/monorepo-skill
 ```
 
 ### Or Install Individual Skills a la Carte:
 ```bash
 # Mother Skill (Layout, Orchestration, Hot-Reload Matrix)
-npx skills add <github-username>/monorepo-skill@fullstack-monorepo
+npx skills add brianpumarica/monorepo-skill@fullstack-monorepo
 
 # Core Infrastructure Skills
-npx skills add <github-username>/monorepo-skill@cloudflare-tunnel
-npx skills add <github-username>/monorepo-skill@vercel-monorepo-deploy
-npx skills add <github-username>/monorepo-skill@docker-hardening
+npx skills add brianpumarica/monorepo-skill@cloudflare-tunnel
+npx skills add brianpumarica/monorepo-skill@vercel-monorepo-deploy
+npx skills add brianpumarica/monorepo-skill@docker-hardening
 
 # Tech-Specific Skills
-npx skills add <github-username>/monorepo-skill@prisma-database
-npx skills add <github-username>/monorepo-skill@nestjs-backend
-npx skills add <github-username>/monorepo-skill@fastapi-backend
-npx skills add <github-username>/monorepo-skill@turborepo-orchestration
+npx skills add brianpumarica/monorepo-skill@prisma-database
+npx skills add brianpumarica/monorepo-skill@nestjs-backend
+npx skills add brianpumarica/monorepo-skill@fastapi-backend
+npx skills add brianpumarica/monorepo-skill@turborepo-orchestration
 ```
 
 ---
