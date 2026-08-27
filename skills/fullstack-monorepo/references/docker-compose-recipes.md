@@ -1,5 +1,11 @@
 # Docker Compose Templates (Dev & Prod)
 
+> [!WARNING]
+> **File Naming Standard**:
+> - Development environment MUST be named **`docker-compose.yml`** (never `docker-compose.dev.yml` or `compose.dev.yml`).
+> - Production environment MUST be named **`docker-compose.prod.yml`**.
+> - If an existing repository contains `compose.dev.yml` or `docker-compose.dev.yml`, rename and migrate it to `docker-compose.yml` and delete the old `.dev` file.
+
 ---
 
 ## 1. `docker-compose.yml` (Development & Hybrid by Default)

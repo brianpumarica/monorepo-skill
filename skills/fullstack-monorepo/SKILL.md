@@ -62,6 +62,12 @@ Every repository following this standard MUST adhere to this directory hierarchy
 ### Principle 1: Dev-First by Default (`docker-compose.yml`)
 Running `docker compose up -d` with **zero extra flags** MUST immediately start the full local development stack (Database + Backend Dev + Frontend Dev) with hot-reloading.
 
+> [!CAUTION]
+> **Strict Anti-Pattern & Migration Rule: NO `compose.dev` or `docker-compose.dev.yml`**:
+> - **NEVER** create `docker-compose.dev.yml`, `compose.dev.yml`, `compose.dev.yaml`, or `docker-compose.development.yml`.
+> - **Refactoring Existing Code**: If you find any `*compose*.dev.*` file in a project, you MUST immediately migrate/rename it to `docker-compose.yml` and delete the old `.dev` file.
+> - **Why**: Docker Compose looks for `docker-compose.yml` by default. Having development configured in `docker-compose.yml` ensures that running `docker compose up -d` (zero flags) works instantly without requiring `-f docker-compose.dev.yml`.
+
 ### Principle 2: Hybrid Mode (DB + Backend Only)
 When developing the frontend outside Docker (or testing against Vercel/Netlify), start only the database and API:
 ```bash
