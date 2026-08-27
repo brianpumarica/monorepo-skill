@@ -106,3 +106,9 @@ Avoid maintaining slow, intermediate compilation steps (`tsup` / `tsc -b`) for i
   "packageManager": "pnpm@9.1.0"
 }
 ```
+
+---
+
+## 5. Deep-Dive Reference Guides
+
+- [Turborepo Remote Caching & Advanced Task Filtering](./references/remote-caching-and-filtering.md) (Remote cache linking with Vercel, task filtering cheatsheet, and pipeline optimization).

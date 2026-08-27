@@ -178,3 +178,9 @@ RUN if [ -f apps/api/prisma/seed.ts ]; then npx tsc apps/api/prisma/seed.ts --ou
 2. **Environment Variable Enforcement**: Read `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `process.env`. If absent in production, skip or abort gracefully with a security warning rather than provisioning a vulnerable account.
 3. **Idempotency**: Use `upsert` so re-deployments with `--force-recreate` never duplicate or corrupt existing records.
 
+---
+
+## 7. Deep-Dive Reference Guides
+
+- [Prisma ORM, pgvector & PostgreSQL Extension Standard](./references/pgvector-and-extensions.md) (pgvector embeddings, RAG similarity search queries, and connection pool tuning).
+

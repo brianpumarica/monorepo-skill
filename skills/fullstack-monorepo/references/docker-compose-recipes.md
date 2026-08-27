@@ -36,16 +36,16 @@ services:
     container_name: ${PROJECT_NAME:-app}-backend-dev
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_BACKEND:-3000}:${PORT:-3000}"
+      - "${HOST_PORT_BACKEND:-3004}:${PORT:-3004}"
     depends_on:
       database:
         condition: service_healthy
     environment:
       NODE_ENV: development
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3004}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-app_db}?schema=public
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-key}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8084}
     volumes:
       - ./apps/api:/app/apps/api
       - ./packages:/app/packages
@@ -62,15 +62,15 @@ services:
     container_name: ${PROJECT_NAME:-app}-frontend-dev
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_FRONTEND:-8080}:${FRONTEND_PORT:-8080}"
+      - "${HOST_PORT_FRONTEND:-8084}:${FRONTEND_PORT:-8084}"
     depends_on:
       - backend
     environment:
       NODE_ENV: development
       WATCHPACK_POLLING: "true"
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
-      EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:3000}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3004}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3004}
+      EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:3004}
     volumes:
       - ./apps/web:/app/apps/web
       - ./packages:/app/packages
@@ -124,13 +124,13 @@ services:
     container_name: ${PROJECT_NAME:-app}-backend-prod
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_BACKEND:-3000}:${PORT:-3000}"
+      - "${HOST_PORT_BACKEND:-3004}:${PORT:-3004}"
     depends_on:
       database:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3004}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}?schema=public
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}

@@ -24,19 +24,29 @@ if [ $COUNT -eq $MAX_TRIES ]; then
 fi
 
 echo "==> Running database migrations..."
-if [ -f "./prisma/schema.prisma" ]; then
-  npx prisma migrate deploy --schema=./prisma/schema.prisma
+if [ -d "./prisma" ] || [ -f "./prisma/schema.prisma" ]; then
+  if command -v pnpm >/dev/null 2>&1; then
+    pnpm exec prisma migrate deploy
+  elif [ -x "./node_modules/.bin/prisma" ]; then
+    ./node_modules/.bin/prisma migrate deploy
+  else
+    npx --no-install prisma migrate deploy
+  fi
 elif [ -f "./alembic.ini" ]; then
   alembic upgrade head
 fi
 
 echo "==> Running idempotent seed (if present)..."
 if [ -f "./dist/prisma/seed.js" ]; then
-  node dist/prisma/seed.js || true
+  node dist/prisma/seed.js
 elif [ -f "./dist/seed.js" ]; then
-  node dist/seed.js || true
-elif [ -f "./prisma/seed.ts" ]; then
-  npx tsx prisma/seed.ts 2>/dev/null || npx ts-node prisma/seed.ts 2>/dev/null || true
+  node dist/seed.js
+elif [ -f "./prisma/seed.ts" ] && [ "$NODE_ENV" != "production" ]; then
+  if [ -x "./node_modules/.bin/tsx" ]; then
+    ./node_modules/.bin/tsx prisma/seed.ts
+  else
+    npx --no-install tsx prisma/seed.ts
+  fi
 fi
 
 echo "==> Starting main process..."

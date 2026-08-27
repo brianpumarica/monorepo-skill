@@ -174,3 +174,9 @@ To prevent file watch drops inside Docker mounted volumes:
   "exec": "nest start --watch"
 }
 ```
+
+---
+
+## 5. Deep-Dive Reference Guides
+
+- [NestJS Swagger OpenAPI, Terminus Health Probes & JWT Guards](./references/swagger-terminus-jwt.md) (Interactive API docs, memory limit checks for Docker, and Passport JWT authentication).

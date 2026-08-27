@@ -150,3 +150,9 @@ EXPOSE 3004
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3004", "--workers", "2"]
 ```
+
+---
+
+## 5. Deep-Dive Reference Guides
+
+- [Async Alembic Migrations & Testing Setup](./references/async-alembic-and-testing.md) (Asyncpg `env.py` runner, pytest fixtures, and dependency overrides).

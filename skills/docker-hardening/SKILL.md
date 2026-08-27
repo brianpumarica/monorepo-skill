@@ -186,3 +186,9 @@ When deploying via a **GitHub Self-Hosted Runner** on Raspberry Pi / Linux Serve
    ```
 4. **Remove Unused SSH Secrets**: Self-hosted runners execute locally inside the machine. Remove external SSH secrets (`RASPI_SSH_KEY`, `RASPI_HOST`, `RASPI_USER`) to minimize the attack surface.
 
+---
+
+## 8. Deep-Dive Reference Guides
+
+- [Docker Security Audit & Production Hardening Benchmarks](./references/security-audit-and-benchmarks.md) (CIS benchmarks, kernel sysctls tuning, and Trivy image scanning).
+

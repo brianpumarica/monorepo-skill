@@ -188,3 +188,9 @@ docker compose -f docker-compose.prod.yml exec tunnel ping -c 2 backend
 ### Common Issues:
 - **Error 502 Bad Gateway**: Ensure `backend` is running and listening on `0.0.0.0:3004` (not `127.0.0.1:3004`).
 - **CORS Blocked**: Ensure the backend includes the frontend domain in `CORS_ALLOWED_ORIGINS` and Cloudflare SSL mode is set to **Full** or **Full (Strict)**.
+
+---
+
+## 7. Deep-Dive Reference Guides
+
+- [Cloudflare Zero Trust Access & Advanced Ingress Runbook](./references/zero-trust-access-and-ingress.md) (Service Tokens for CI/CD, multi-service routing, and TCP proxying).

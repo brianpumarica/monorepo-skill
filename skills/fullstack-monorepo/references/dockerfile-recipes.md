@@ -20,7 +20,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter api exec prisma generate 2>/dev/null || true
 RUN chmod +x apps/api/entrypoint.sh
-EXPOSE 3000
+EXPOSE 3004
 ENTRYPOINT ["/app/apps/api/entrypoint.sh"]
 CMD ["pnpm", "--filter", "api", "dev"]
 
@@ -33,7 +33,7 @@ COPY . .
 RUN pnpm --filter api exec prisma generate 2>/dev/null || true
 RUN pnpm --filter api build
 # Compile TypeScript seeder so it can run in production without devDependencies/ts-node
-RUN if [ -f apps/api/prisma/seed.ts ]; then npx tsc apps/api/prisma/seed.ts --outDir apps/api/dist/prisma --target ES2022 --module CommonJS 2>/dev/null || true; fi
+RUN if [ -f apps/api/prisma/seed.ts ]; then pnpm --filter api exec tsc prisma/seed.ts --outDir dist/prisma --target ES2022 --module CommonJS 2>/dev/null || true; fi
 RUN pnpm --filter api --prod deploy /prod/api
 # Ensure compiled dist folder is included in deployed bundle
 RUN cp -r apps/api/dist /prod/api/dist 2>/dev/null || true
@@ -44,7 +44,7 @@ USER node
 COPY --chown=node:node --from=build /prod/api ./
 COPY --chown=node:node apps/api/entrypoint.sh ./
 RUN chmod +x entrypoint.sh
-EXPOSE 3000
+EXPOSE 3004
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "dist/main.js"]
 ```
@@ -74,14 +74,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 FROM base AS development
 COPY --chown=appuser:appgroup apps/api ./apps/api
 USER appuser
-EXPOSE 3000
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "3000", "--reload"]
+EXPOSE 3004
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "3004", "--reload"]
 
 FROM base AS production
 COPY --chown=appuser:appgroup apps/api ./apps/api
 USER appuser
-EXPOSE 3000
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "3000", "--workers", "4"]
+EXPOSE 3004
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "3004", "--workers", "4"]
 ```
 
 ---
@@ -102,8 +102,8 @@ COPY apps/web/package.json ./apps/web/
 COPY packages ./packages
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY . .
-EXPOSE 8080
-CMD ["pnpm", "--filter", "web", "dev", "--host", "0.0.0.0", "--port", "8080"]
+EXPOSE 8084
+CMD ["pnpm", "--filter", "web", "dev", "--host", "0.0.0.0", "--port", "8084"]
 
 FROM base AS build
 ARG VITE_API_URL
@@ -164,8 +164,8 @@ COPY apps/web/package.json ./apps/web/
 COPY packages ./packages
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY . .
-EXPOSE 8080
-CMD ["pnpm", "--filter", "web", "dev", "--port", "8080"]
+EXPOSE 8084
+CMD ["pnpm", "--filter", "web", "dev", "--port", "8084"]
 
 FROM base AS build
 ARG NEXT_PUBLIC_API_URL
@@ -179,11 +179,11 @@ RUN pnpm --filter web build
 
 FROM node:22-alpine AS production
 WORKDIR /app
-ENV NODE_ENV=production PORT=8080
+ENV NODE_ENV=production PORT=8084
 USER node
 COPY --chown=node:node --from=build /app/apps/web/.next/standalone ./
 COPY --chown=node:node --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --chown=node:node --from=build /app/apps/web/public ./apps/web/public
-EXPOSE 8080
+EXPOSE 8084
 CMD ["node", "apps/web/server.js"]
 ```

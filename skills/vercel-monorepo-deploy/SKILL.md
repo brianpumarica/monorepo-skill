@@ -217,3 +217,9 @@ export default defineConfig({
 - [ ] `vercel.json` created in `apps/web` (for Vite/SPA apps).
 - [ ] Backend CORS configured to accept `https://*.vercel.app` and custom domain.
 
+---
+
+## 9. Deep-Dive Reference Guides
+
+- [Vercel Preview Deployments, Environment Matrix & Troubleshooting](./references/preview-deployments-and-troubleshooting.md) (Automated PR preview workflows via GitHub Actions and Vercel CLI, root cause troubleshooting matrix).
+

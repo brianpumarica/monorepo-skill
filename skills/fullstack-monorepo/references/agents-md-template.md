@@ -6,8 +6,8 @@
 # AGENTS.md — [PROJECT_NAME]
 
 ## 1. Monorepo Overview
-- **Backend (`apps/api`)**: [NestJS / FastAPI / Express], Port: `[3000]`
-- **Frontend (`apps/web`)**: [Next.js / Vite / Expo Web], Port: `[8080]`
+- **Backend (`apps/api`)**: [NestJS / FastAPI / Express], Port: `[3004]`
+- **Frontend (`apps/web`)**: [Next.js / Vite / Expo Web], Port: `[8084]`
 - **Database**: PostgreSQL 16 (Port: `[5432]`)
 - **Shared Packages (`packages/`)**: `@repo/types`, `@repo/tsconfig`
 
@@ -39,16 +39,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 | Service | Container Name | Host Port | Internal Port |
 | :--- | :--- | :--- | :--- |
 | **Database** | `[PROJECT_NAME]-database` | `${HOST_PORT_DB:-5432}` | `5432` |
-| **Backend** | `[PROJECT_NAME]-backend-dev` | `${HOST_PORT_BACKEND:-3000}` | `${PORT:-3000}` |
-| **Frontend** | `[PROJECT_NAME]-frontend-dev` | `${HOST_PORT_FRONTEND:-8080}` | `${FRONTEND_PORT:-8080}` |
+| **Backend** | `[PROJECT_NAME]-backend-dev` | `${HOST_PORT_BACKEND:-3004}` | `${PORT:-3004}` |
+| **Frontend** | `[PROJECT_NAME]-frontend-dev` | `${HOST_PORT_FRONTEND:-8084}` | `${FRONTEND_PORT:-8084}` |
 
 ---
 
 ## 4. Installed & Recommended Agent Skills
 - `fullstack-monorepo`: Main monorepo orchestrator and standards enforcer.
-- `docker-expert`: Deep Docker command and debugging operations.
-- `prisma-cli` / `postgres`: Database schema alterations and migrations.
-- `vercel-deploy`: Frontend cloud deployment configuration.
+- `docker-hardening`: Deep Docker security, non-root execution, and debugging operations.
+- `prisma-database` / `fastapi-backend` / `nestjs-backend`: Database & backend architecture.
+- `vercel-monorepo-deploy`: Frontend cloud deployment configuration.
+- `cloudflare-tunnel`: Zero Trust remote exposure without opening router ports.
 
 ---
 

@@ -23,6 +23,7 @@
     "url": "https://github.com/brianpumarica/monorepo-skill.git"
   },
   "scripts": {
-    "lint:skills": "echo 'All SKILL.md files verified'"
+    "lint:skills": "node scripts/validate-skills.js",
+    "test": "node scripts/validate-skills.js"
   }
 }

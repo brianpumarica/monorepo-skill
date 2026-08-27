@@ -95,28 +95,40 @@ npx skills add brianpumarica/monorepo-skill --skill turborepo-orchestration
 
 ```
 .
+├── .github/
+│   └── workflows/
+│       └── validate-skills.yml  # Automated skills quality & link checker
+├── scripts/
+│   └── validate-skills.js       # Skills suite validator (npm test)
 ├── skills/                      # Canonical skills directory (skills.sh compatible)
 │   ├── fullstack-monorepo/      # Mother orchestrator skill
 │   │   ├── SKILL.md
 │   │   └── references/
 │   ├── cloudflare-tunnel/       # Core infrastructure skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   ├── vercel-monorepo-deploy/  # Core deployment skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   ├── docker-hardening/        # Core security skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   ├── prisma-database/         # Optional database skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   ├── nestjs-backend/          # Optional backend skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   ├── fastapi-backend/         # Optional backend skill
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
 │   └── turborepo-orchestration/ # Optional tooling skill
-│       └── SKILL.md
+│       ├── SKILL.md
+│       └── references/
 ├── .gitattributes               # Git LF normalization
 ├── .gitignore                   # Standard ignore rules
 ├── LICENSE                      # MIT License
-├── package.json                 # Repository metadata
+├── package.json                 # Repository metadata & test scripts
 └── README.md                    # Project documentation
 ```
 
