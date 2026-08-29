@@ -1,138 +1,167 @@
 ---
 name: fullstack-monorepo
-description: End-to-end framework-agnostic standard for creating, scaffolding, auditing, and maintaining production-grade Full-Stack Monorepos. Covers unified workspace setup (pnpm/npm/uv), dual Docker Compose orchestration (zero-flag dev-first + hybrid mode + Raspberry Pi production), bulletproof cross-platform hot-reloading (Vite, Next.js, Expo, NestJS, Express, FastAPI, Flask), multi-stage non-root Dockerfiles, safe database migration/seed lifecycle, Cloudflare Tunnels + Vercel deployment, and clean minimal-comment templates. Use whenever initializing a new monorepo, refactoring multi-package repositories, setting up Docker or compose for full-stack apps, fixing hot-reload in containers, or structuring frontend-backend-database architectures.
+description: End-to-end framework-agnostic standard for auditing, scaffolding, refactoring, and maintaining production-grade Full-Stack Monorepos. Supports two official interaction modes (/analiza for stack-aware audit & gap analysis, /ejecuta for exhaustive implementation & legacy eradication). Covers conditional stack detection (Node/Python/Vite/Next/Docker), zero-flag dev-first Compose, bulletproof hot-reloading across host mounts, non-root multi-stage containers, SPA routing with Nginx/Vercel, and dual CI/CD (Vercel CLI + Pi Runner).
 ---
 
 # Fullstack Monorepo Standard & Scaffold Runbook
 
-This skill provides an opinionated, technology-agnostic standard for building and structuring production-grade Full-Stack Monorepos.
+Este estándar proporciona un marco agnóstico, condicional y de grado de producción para crear, auditar y refactorizar monorrepos full-stack.
 
 ---
 
-## 1. Golden Monorepo Directory Layout
+## 1. Modos de Invocación y Comandos Oficiales
 
-Every repository following this standard MUST adhere to this directory hierarchy:
+Cualquier agente IA que ejecute esta skill DEBE responder de acuerdo al subcomando invocado:
+
+| Comando / Sintaxis | Modo | Comportamiento Obligatorio del Agente |
+| :--- | :--- | :--- |
+| **`/fullstack-monorepo /analiza`**<br>*(o `@fullstack-monorepo /analiza`)* | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>4. Presenta el plan de acción listo para aprobación. |
+| **`/fullstack-monorepo /ejecuta`**<br>*(o `@fullstack-monorepo /ejecuta`)* | **Fase 2: Implementación & Erradicación** | 1. Aplica obligatoriamente el **Checklist de 6 Fases** para las tecnologías detectadas sin omitir entregables.<br>2. **Elimina proactivamente archivos legacy/anti-patrones**.<br>3. Ejecuta validaciones automáticas (`docker compose config`, lint, build).<br>4. Entrega el reporte de cambios completo. |
+| **`/fullstack-monorepo`** *(sin subcomando)* | **Modo Directo (All-in-One)** | Ejecuta el análisis y, si no existen dudas humanas ambiguas, **procede directamente a la ejecución exhaustiva** sin requerir confirmación intermedia. |
+
+---
+
+## 2. Motor de Detección Condicional de Stack (*Stack-Aware Engine*)
+
+La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análisis, el agente detecta el stack activo y activa **únicamente** las directivas correspondientes de forma obligatoria:
+
+| Tecnología Detectada | Indicador en el Proyecto | Directivas Obligatorias Activadas |
+| :--- | :--- | :--- |
+| **Docker / Compose** | Hay Dockerfiles o `docker-compose*.yml` | • `.gitattributes` con `eol=lf` para scripts Linux en Windows.<br>• `.dockerignore` raíz centralizado.<br>• `docker-compose.yml` (dev-first sin flags) y `docker-compose.prod.yml`. |
+| **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• BuildKit cache mounts (`/root/.npm`).<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
+| **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` y `USER appuser` non-root.<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir /app`. |
+| **Frontend SPA (Vite / React / Vue)** | `vite.config.ts` o index.html cliente | • `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y Gzip.<br>• `frontend/vercel.json` con rewrites para SPA.<br>• Servidor final ultra-ligero `nginx:alpine` (<10MB RAM). |
+| **Frontend SSR (Next.js)** | `next.config.js/ts` | • `output: 'standalone'` en producción.<br>• Volumen anónimo `/app/.next` y `WATCHPACK_POLLING=true`.<br>• Inyección de variables `NEXT_PUBLIC_*` en build-time. |
+| **PostgreSQL / Base de Datos** | SQL scripts, Prisma o Alembic | • Healthchecks activos con `pg_isready`.<br>• Volumen de datos nombrado persistente.<br>• Seeders seguros (variables de entorno, sin contraseñas hardcodeadas). |
+
+---
+
+## 3. Regla de Cero Preguntas Obvias (*No-Trivial Questions Rule*)
+
+Para maximizar la autonomía y la velocidad, el agente DEBE aplicar este filtro estricto:
+
+* 🚫 **PROHIBIDO PREGUNTAR (Decisiones pre-aprobadas por el estándar):**
+  - "¿Quieres que consolide `docker-compose.dev.yml` en `docker-compose.yml`?" $\rightarrow$ **SÍ, la skill lo exige.**
+  - "¿Deseas agregar `nginx.conf` o `vercel.json` para las rutas SPA?" $\rightarrow$ **SÍ, la skill lo exige.**
+  - "¿Quieres usar Node 22 en lugar de Node 20?" $\rightarrow$ **SÍ, la skill lo exige.**
+  - "¿Quieres crear `.gitattributes` para evitar CRLF en Windows?" $\rightarrow$ **SÍ, la skill lo exige.**
+  - "¿Deseas ejecutar el backend como non-root?" $\rightarrow$ **SÍ, la skill lo exige.**
+
+* ✅ **ÚNICAS PREGUNTAS PERMITIDAS (Dilemas arquitectónicos reales):**
+  - Existencia de múltiples servicios que colisionan en responsabilidades.
+  - Elección de proveedor de base de datos externa no documentada.
+  - Secretos de entorno faltantes que impiden la inicialización.
+
+---
+
+## 4. Tabla de Erradicación de Anti-Patrones (*Legacy Eradication Matrix*)
+
+Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguientes anti-patrones:
+
+| Anti-Patrón Heredado / Detectado | Acción Obligatoria de la Skill |
+| :--- | :--- |
+| **`docker-compose.dev.yml`** separado | **ELIMINAR / UNIFICAR DIRECTAMENTE en `docker-compose.yml`** para que `docker compose up -d` (cero flags) levante el entorno dev completo. |
+| Scripts de CI/CD fragmentados (ej. `deploy-backend.yml` SSH aislado) | **REEMPLAZAR por `.github/workflows/deploy.yml`** con el pipeline dual completo (Vercel CLI + Pi Runner). |
+| Dockerfile corriendo como `root` en producción | **MIGRAR OBLIGATORIAMENTE a `USER node` o `USER appuser`**. |
+| Backend iniciando sin verificar disponibilidad de DB | **CREAR OBLIGATORIAMENTE `entrypoint.sh`** con bucle `pg_isready` y `exec "$@"`. |
+| SPA sin configuración de servidor web | **CREAR OBLIGATORIAMENTE `nginx.conf` y `vercel.json`** para evitar errores 404 al recargar rutas. |
+| Repositorio sin control de saltos de línea | **CREAR OBLIGATORIAMENTE `.gitattributes`** con `eol=lf`. |
+
+---
+
+## 5. Golden Monorepo Directory Layout
 
 ```
 <project-root>/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml           # Dual CI/CD: Vercel CLI (Frontend) + Pi Runner (Backend)
+│       └── deploy.yml           # Pipeline Dual: Vercel CLI (Frontend) + Pi Runner (Backend)
 ├── .agents/
-│   └── skills/                  # Local workspace skills
-├── apps/
-│   ├── api/                     # Backend service (NestJS / Express / FastAPI / etc.)
-│   │   ├── Dockerfile
-│   │   ├── entrypoint.sh        # DB migration & startup runner
-│   │   └── package.json         # (or requirements.txt / pyproject.toml)
-│   └── web/                     # Frontend service (Next.js / Vite / Expo Web / etc.)
-│       ├── Dockerfile
-│       ├── nginx.conf           # Required for SPAs (Vite / React / Expo / Vue)
-│       └── package.json
-├── packages/
-│   ├── types/                   # Shared TypeScript interfaces, DTOs & Zod schemas
-│   │   ├── package.json
-│   │   └── src/index.ts
-│   └── tsconfig/                # Shared TypeScript base configs
-│       ├── package.json
-│       └── base.json
+│   └── skills/                  # Skills locales del workspace
+├── apps/ (o backend / frontend)
+│   ├── api/                     # Backend (NestJS / Express / FastAPI)
+│   │   ├── Dockerfile           # Multi-stage, Node 22 / Python 3.12, non-root
+│   │   └── entrypoint.sh        # DB readiness & startup runner
+│   └── web/                     # Frontend (Next.js / Vite / React)
+│       ├── Dockerfile           # Multi-stage, Nginx Alpine / Standalone
+│       ├── nginx.conf           # Requerido para SPAs (Gzip + SPA Routing)
+│       └── vercel.json          # Requerido para despliegues Vercel SPA
+├── packages/ (opcional)
+│   ├── types/                   # Interfaces TypeScript y esquemas Zod compartidos
+│   └── tsconfig/                # Configuraciones base de TypeScript
 ├── docs/
-│   ├── architecture.md          # Architecture & data flow diagrams
-│   ├── api-reference.md         # Endpoints & authentication
-│   └── deployment.md            # Raspberry Pi + Cloudflare Tunnel + Vercel guide
+│   ├── architecture.md          # Diagramas de flujo y topología de contenedores
+│   ├── api-reference.md         # Endpoints, autenticación y payloads
+│   └── deployment.md            # Guía Raspberry Pi + Cloudflare Tunnel + Vercel
 ├── docker/
-│   └── init-db.sql              # Initial database extensions / schema (optional)
-├── .dockerignore                # Centralized ignore rules
-├── .env.example                 # Documented template without real secrets
-├── .gitattributes               # Forces LF line endings for shell scripts (*.sh)
-├── .gitignore                   # Comprehensive ignores for OS, Node, Python, Docker
-├── AGENTS.md                    # Instructions & port matrix for AI assistants
-├── docker-compose.yml           # DEV-FIRST compose (Default: DB + Back + Front hot-reload)
-├── docker-compose.prod.yml      # PROD compose (Optimized runtime for Raspberry Pi / VPS)
-├── package.json                 # Monorepo root workspace manifest
-├── pnpm-workspace.yaml          # Workspace package registry
-├── README.md                    # Human-facing setup and quickstart guide
-└── turbo.json                   # Pipeline task runner config (optional but recommended)
+│   └── init-db.sql              # Extensiones y esquema inicial de base de datos
+├── .dockerignore                # Reglas centralizadas de exclusión
+├── .env.example                 # Plantilla documentada sin secretos reales
+├── .gitattributes               # Forzado de saltos LF para scripts Linux (*.sh, *.sql)
+├── .gitignore                   # Ignorados exhaustivos (Node, Docker, Vercel, Turbo)
+├── AGENTS.md                    # Matriz de puertos y directrices para agentes IA
+├── docker-compose.yml           # DEV-FIRST por defecto (DB + Back Dev + Front Dev)
+├── docker-compose.prod.yml      # PROD optimizado (Zero source mounts, non-root, restart)
+├── package.json                 # Scripts raíz de orquestación (npm run docker:dev, etc.)
+└── README.md                    # Guía de inicio rápido para desarrolladores
 ```
 
 ---
 
-## 2. Docker Compose Orchestration Architecture
+## 6. Checklist de Implementación Mandatoria (6 Fases)
 
-### Principle 1: Dev-First by Default (`docker-compose.yml`)
-Running `docker compose up -d` with **zero extra flags** MUST immediately start the full local development stack (Database + Backend Dev + Frontend Dev) with hot-reloading.
+Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`), el agente DEBE ejecutar ordenadamente:
 
-> [!CAUTION]
-> **Strict Anti-Pattern & Migration Rule: NO `compose.dev` or `docker-compose.dev.yml`**:
-> - **NEVER** create `docker-compose.dev.yml`, `compose.dev.yml`, `compose.dev.yaml`, or `docker-compose.development.yml`.
-> - **Refactoring Existing Code**: If you find any `*compose*.dev.*` file in a project, you MUST immediately migrate/rename it to `docker-compose.yml` and delete the old `.dev` file.
-> - **Why**: Docker Compose looks for `docker-compose.yml` by default. Having development configured in `docker-compose.yml` ensures that running `docker compose up -d` (zero flags) works instantly without requiring `-f docker-compose.dev.yml`.
+### Fase 1: Normalización de Raíz
+- [ ] Crear `.gitattributes` con `*.sh text eol=lf`, `*.sql text eol=lf`, `Dockerfile* text eol=lf`.
+- [ ] Crear `.dockerignore` raíz y `.dockerignore` en backend.
+- [ ] Actualizar `.gitignore` para monorrepos (Vercel, Turbo, logs, data).
+- [ ] Crear `package.json` raíz con scripts de orquestación (`docker:dev`, `docker:prod`, `docker:down`, `docker:logs`).
 
-### Principle 2: Hybrid Mode (DB + Backend Only)
-When developing the frontend outside Docker (or testing against Vercel/Netlify), start only the database and API:
-```bash
-docker compose up -d database backend
-```
+### Fase 2: Orquestación Docker Compose
+- [ ] Consolidar stack de desarrollo en `docker-compose.yml` (dev-first con cero flags).
+- [ ] Eliminar cualquier archivo legacy redundante (`docker-compose.dev.yml`).
+- [ ] Generar `docker-compose.prod.yml` con imágenes de producción, healthchecks y reinicio `unless-stopped`.
 
-### Principle 3: Production on Raspberry Pi / VPS (`docker-compose.prod.yml`)
-Production runs optimized built images with no source code mounts, non-root users, and minimal resource footprints:
-```bash
-docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
-```
+### Fase 3: Backend Hardening
+- [ ] Crear `backend/entrypoint.sh` ejecutable con `pg_isready` y `exec "$@"`.
+- [ ] Configurar `backend/Dockerfile` multi-stage (Node 22 / Python 3.12, `USER node` / `USER appuser`, BuildKit cache).
+- [ ] Configurar hot-reload con polling (`CHOKIDAR_USEPOLLING=true` en Docker).
+
+### Fase 4: Frontend Production Readiness
+- [ ] Crear `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y compresión gzip.
+- [ ] Crear `frontend/vercel.json` con rewrites para Vercel.
+- [ ] Configurar `frontend/Dockerfile` multi-stage con `nginx:alpine` para producción.
+
+### Fase 5: CI/CD Pipeline Dual
+- [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Vercel CLI Frontend + Job 2: Raspberry Pi / Servidor Docker con `--force-recreate`).
+- [ ] Eliminar workflows de despliegue fragmentados u obsoletos.
+
+### Fase 6: Documentación y Agentes
+- [ ] Generar `docs/architecture.md`, `docs/deployment.md` y `docs/api-reference.md`.
+- [ ] Actualizar `AGENTS.md` con la matriz activa de puertos y registro de skills.
+- [ ] Actualizar `README.md` con la guía de inicio rápido.
+- [ ] Validar sintaxis con `docker compose config` y tests de compilación.
 
 ---
 
-## 3. Technology-Specific Hot-Reload Matrix
+## 7. Matriz de Hot-Reloading Multiplataforma
 
-To prevent file-watching failures on Windows/WSL/Docker mounts, apply these exact configurations:
+Para evitar fallos de detección de archivos en montajes de volumen host (Windows / WSL / macOS):
 
-| Framework / Tool | Key File | Configuration |
+| Framework / Tool | Archivo Clave | Configuración Mandatoria |
 | :--- | :--- | :--- |
-| **Vite** (React / Vue / Svelte) | `apps/web/vite.config.ts` | `server: { host: '0.0.0.0', port: 8084, watch: { usePolling: true, interval: 100 } }` |
-| **Next.js** | `docker-compose.yml` | `environment: [WATCHPACK_POLLING=true]` + anonymous volume `/app/.next` |
-| **Expo Web / React Native** | `apps/web/Dockerfile` | `CMD ["npx", "expo", "start", "--web", "--port", "8084", "--host", "0.0.0.0"]` |
-| **NestJS / TypeScript** | `apps/api/nodemon.json` | `{"watch": ["src"], "ext": "ts", "legacyWatch": true, "exec": "nest start"}` |
-| **Express / TypeScript** | `apps/api/package.json` | `"dev": "tsx watch --poll src/index.ts"` |
-| **FastAPI / Python** | `docker-compose.yml` | `uvicorn main:app --host 0.0.0.0 --port 3004 --reload --reload-dir /app` |
-| **Flask / Python** | `docker-compose.yml` | `environment: [FLASK_DEBUG=1]` + `python app.py` listening on `0.0.0.0` |
+| **Vite** (React / Vue) | `vite.config.ts` | `server: { host: '0.0.0.0', watch: { usePolling: true, interval: 100 } }` |
+| **Next.js** | `docker-compose.yml` | `environment: [WATCHPACK_POLLING=true]` + volumen anónimo `/app/.next` |
+| **Express / TS** | `docker-compose.yml` | `environment: [CHOKIDAR_USEPOLLING=true]` + `"dev": "tsx watch src/index.ts"` |
+| **NestJS / TS** | `nodemon.json` | `{"watch": ["src"], "ext": "ts", "legacyWatch": true, "exec": "nest start"}` |
+| **FastAPI / Python** | `docker-compose.yml` | `uvicorn main:app --host 0.0.0.0 --reload --reload-dir /app` |
 
 ---
 
-## 4. Dockerfile Production Standards
+## 8. Referencias Detalladas y Companion Skills
 
-All Dockerfiles MUST follow these 5 rules:
-1. **Multi-Stage Architecture**: `base` -> `development` -> `build` -> `production`.
-2. **Non-Root Execution**: Use `USER node` for Node Alpine images or `USER appuser` for Python slim images.
-3. **BuildKit Cache Mounts**: Use `RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install` to speed up builds.
-4. **Static Frontend Hosting**: SPAs (Vite, Expo Web, React) MUST be served via `nginx:alpine` in production (RAM usage < 10MB). Next.js MUST use `output: 'standalone'`.
-5. **Entrypoint Script**: Backend must use an idempotent `entrypoint.sh` that waits for Postgres readiness, runs migrations (`prisma migrate deploy` or `alembic upgrade head`), and executes the command with `exec "$@"`.
-
----
-
-## 5. Deployment Architecture: Raspberry Pi + Cloudflare Tunnel + Vercel
-
-```mermaid
-graph TD
-    A[Push / Merge a main] --> B[GitHub Actions Pipeline]
-    B -->|Job 1: ubuntu-latest| C[Vercel CLI]
-    C -->|Compilación y Despliegue| D[Frontend Next.js / Vite en Vercel]
-    B -->|Job 2: self-hosted, rpi5| E[Raspberry Pi 5 Runner]
-    E -->|docker compose --force-recreate| F[Backend + PostgreSQL en Docker]
-    D -->|HTTPS REST API / Cloudflare Edge| G[https://api.tudominio.com]
-    G --> F
-```
-
-1. **Dual CI/CD Pipeline (`.github/workflows/deploy.yml`)**:
-   - **Frontend (`deploy-frontend`)**: Deployed via **Vercel CLI** on `ubuntu-latest`. Bypasses Vercel Hobby plan limitations for private organization repos without requiring a Pro subscription. Passes `NEXT_PUBLIC_API_URL` during build and uses Node 22 (for pnpm 10 `node:sqlite`).
-   - **Backend (`deploy-backend`)**: Deployed on **Raspberry Pi 5 Self-Hosted Runner** (`[self-hosted, rpi5]`). Pulls code into an isolated runner workspace, preserves local `.env`, and runs `docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans`.
-2. **Cloudflare Tunnel (`cloudflared`)**: Exposes backend port 3004 to `https://api.tudominio.com` with Zero Trust security, SSL termination, and zero opened router ports.
-3. **CORS**: Backend allows `*.vercel.app` and custom frontend domains.
-
----
-
-## 6. Detailed Reference Docs
-
-For copy-paste ready, minimal-comment templates, refer to:
+Para plantillas de código listas para usar:
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md)
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md)
 - [Docker Compose Recipes](./references/docker-compose-recipes.md)
@@ -140,21 +169,8 @@ For copy-paste ready, minimal-comment templates, refer to:
 - [AGENTS.md Standard Template](./references/agents-md-template.md)
 - [Database Lifecycle & Entrypoint](./references/database-lifecycle.md)
 
----
-
-## 7. Companion Skills Ecosystem
-
-This mother skill orchestrates a suite of specialized companion skills in `skills/` (or installable via `npx skills add <repository>@<skill>`):
-
-### Core / Required Skills (Always Applied):
-- [`cloudflare-tunnel`](../cloudflare-tunnel/SKILL.md): Exposing Raspberry Pi 5 backends & databases securely with Zero Trust and `cloudflared`.
-- [`vercel-monorepo-deploy`](../vercel-monorepo-deploy/SKILL.md): Monorepo frontend deployment, `turbo-ignore`, and Cloudflare API wiring.
-- [`docker-hardening`](../docker-hardening/SKILL.md): Non-root execution, `cap_drop: [ALL]`, BuildKit cache mounts, and container healthchecks.
-
-### Optional / Stack-Specific Skills (Invoked on Demand):
-- [`prisma-database`](../prisma-database/SKILL.md): Multi-file schemas (`prismaSchemaFolder`), connection pool adapters, and typed seeders.
-- [`nestjs-backend`](../nestjs-backend/SKILL.md): Modular NestJS architecture, global response transform interceptor, and exception filters.
-- [`fastapi-backend`](../fastapi-backend/SKILL.md): Modern async FastAPI with Pydantic v2, lifespan context, and SQLAlchemy 2.0.
-- [`turborepo-orchestration`](../turborepo-orchestration/SKILL.md): Advanced `turbo.json` task pipelines, JIT shared packages, and `turbo watch dev`.
-
-
+### Companion Skills Coordinadas:
+- [`cloudflare-tunnel`](../cloudflare-tunnel/SKILL.md): Exposición segura con Zero Trust y SSL sin abrir puertos de router.
+- [`vercel-monorepo-deploy`](../vercel-monorepo-deploy/SKILL.md): Despliegue de frontend monorrepo con Vercel CLI y `turbo-ignore`.
+- [`docker-hardening`](../docker-hardening/SKILL.md): Seguridad de contenedores (`USER node`, `cap_drop: [ALL]`, healthchecks).
+- [`prisma-database`](../prisma-database/SKILL.md) / [`fastapi-backend`](../fastapi-backend/SKILL.md) / [`nestjs-backend`](../nestjs-backend/SKILL.md): Especializaciones por tecnología.
