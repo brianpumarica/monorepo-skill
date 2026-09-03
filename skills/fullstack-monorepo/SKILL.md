@@ -194,8 +194,10 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 ### Fase 5: CI/CD Pipeline Dual
 - [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Vercel CLI Frontend + Job 2: Raspberry Pi / Servidor Docker con `--force-recreate`).
 - [ ] Eliminar workflows de despliegue fragmentados u obsoletos.
-- [ ] Confirmar que el repositorio está **bajo la organización dueña del runner** y que el runner figura `Idle` antes de mergear (`gh api /orgs/<org>/actions/runners`).
-- [ ] Crear el `.env` del servidor en su **carpeta por repositorio** (`/home/github-runner/env-backups/<repo>/.env`, `600`, dueño `github-runner`).
+- [ ] Confirmar que el repositorio está **bajo la organización dueña del runner**.
+- [ ] Crear el `.env` del servidor en su **carpeta por repositorio** (`/home/github-runner/env-backups/<repo>/.env`, `600`, dueño `github-runner`; verificar con `sudo`).
+- [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
+- [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.
 - [ ] Agregar el paso de **verificación post-deploy**: contenedores `healthy` + smoke test al endpoint de salud, con el job fallando si no pasa.
 
 ### Fase 6: Documentación y Agentes

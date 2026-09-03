@@ -100,9 +100,9 @@ networks:
 ## 2. `docker-compose.prod.yml` (Production for Raspberry Pi / VPS)
 
 > [!IMPORTANT]
-> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los cinco deltas
+> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los seis deltas
 > obligatorios de §4**: rotación de logs, variables requeridas, nombre de imagen por entorno,
-> hardening por servicio y sincronía de defaults.
+> hardening por servicio, sincronía de defaults y healthcheck nativo en servicios de aplicación.
 
 ```yaml
 services:
@@ -145,6 +145,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}?schema=public
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
+    healthcheck:
+      # /health y wget son placeholders — ver §4.6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     networks:
       - app-net
 
@@ -178,7 +185,7 @@ docker logs -f ${PROJECT_NAME:-app}-backend-prod
 
 ## 4. Endurecimiento Obligatorio del Compose de Producción
 
-Cuatro deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
+Seis deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
 en un host compartido.
 
 ### 4.1 Rotación de logs
@@ -243,3 +250,23 @@ la imagen de desarrollo — con el servidor de desarrollo en lugar del servidor 
 Cuando el compose define una variable —aunque sea con `${VAR:-valor}`—, **la variable siempre
 existe dentro del contenedor**, así que el default que tenga la aplicación en su código nunca se
 aplica. Los dos tienen que decir lo mismo, o el valor del compose es el único que manda.
+
+### 4.6 Healthcheck nativo obligatorio en servicios de aplicación
+
+Sin `healthcheck` propio, `Health` queda vacío y el deploy pipeline que espera "todo healthy"
+(§2 del [runbook de CI/CD](./ci-cd-deployment-pipeline.md)) no espera nada — el smoke test puede
+fallar por carrera, no por bug real.
+
+```yaml
+    healthcheck:
+      test: ["CMD-SHELL", "<wget/curl/lo que traiga la imagen> http://localhost:$$PORT/<ruta-de-health> || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+```
+
+Puerto, ruta y comando son placeholders: usar la variable de entorno, el endpoint y el binario
+HTTP reales de ese proyecto (alpine trae `wget`; otras imágenes pueden necesitar `curl` u otra
+alternativa). Usar `$$PORT` (doble `$`) para que lo resuelva el contenedor en runtime, no Compose
+al parsear el YAML.

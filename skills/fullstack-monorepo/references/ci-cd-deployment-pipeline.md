@@ -32,6 +32,7 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:   # permite probar el pipeline contra la infra real sin tocar main/master
 
 concurrency:
   group: production-deploy
@@ -134,6 +135,13 @@ jobs:
           curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}/health" \
             || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; exit 1; }
           echo "✅ Deployment verified."
+```
+
+> [!WARNING]
+> Endpoint, nombre de servicio y fallback de puerto son placeholders — copiarlos tal cual del
+> `.env`/compose reales del proyecto, no asumirlos. Y sin `healthcheck` nativo en el servicio
+> (§4.6 de [`docker-compose-recipes.md`](./docker-compose-recipes.md)), el loop de espera no
+> espera nada: falla por carrera, no por bug real.
 
 ---
 
@@ -150,6 +158,15 @@ jobs:
 | `VERCEL_PROJECT_ID` | Specific Project ID | Vercel Project > *Settings > General* |
 | `VERCEL_ORG_ID` | Team / Personal Account ID | Vercel Project > *Settings > General* (or User Settings) |
 | `NEXT_PUBLIC_API_URL` | Public backend URL | e.g. `https://api.tudominio.com` |
+
+> [!IMPORTANT]
+> `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez y se
+> reusan entre repos. `VERCEL_PROJECT_ID` y la URL pública son **por repositorio** — antes de
+> cargar un `VERCEL_PROJECT_ID` guardado, confirmarlo contra `Settings → General → Project ID`
+> del proyecto real (una cuenta puede tener varios proyectos; uno equivocado no da un error claro,
+> falla el build con mensajes que parecen no tener relación). Revisar también que **Root
+> Directory** y **Framework Preset** (dos campos separados en Vercel) apunten al subdirectorio y
+> stack correctos, y confirmar la URL pública real con `curl`/`nslookup` en vez de asumirla.
 
 ---
 
@@ -216,9 +233,8 @@ personal **no lo ve**: el job queda en `Queued` indefinidamente y no hay mensaje
 
 - **Antes del primer deploy, el repositorio tiene que estar bajo la organización.** Si nació
   personal: *Settings → General → Danger Zone → Transfer ownership*.
-- La organización debe habilitar el runner group para ese repositorio
-  (*Org Settings → Actions → Runner groups*).
-- Verificar el estado **antes** de mergear a la rama de producción (ver §7).
+- Con el runner group en "All repositories", un repo recién transferido queda cubierto solo. Si
+  está restringido a una lista, agregarlo a mano (*Org Settings → Actions → Runner groups*).
 
 ### 5.2 Un archivo de entorno por repositorio
 
@@ -240,8 +256,13 @@ REPO=<nombre-del-repo>
 sudo install -d -o github-runner -g github-runner -m 700 /home/github-runner/env-backups/$REPO
 sudo install -o github-runner -g github-runner -m 600 \
   /home/<usuario>/Documents/$REPO/.env /home/github-runner/env-backups/$REPO/.env
-ls -l /home/github-runner/env-backups/$REPO/.env
+sudo ls -l /home/github-runner/env-backups/$REPO/.env
+sudo wc -l /home/github-runner/env-backups/$REPO/.env
 ```
+
+> [!NOTE]
+> Verificar siempre con `sudo` — un `ls`/`cat` normal da "Permission denied" a propósito (§5.4),
+> no es un error.
 
 El workflow deriva la ruta de `${{ github.event.repository.name }}`, así que el YAML es idéntico
 en todos los proyectos y no hay nada que editar por repo.
@@ -331,8 +352,11 @@ docker logs --tail=80 --since 30m <contenedor>
 salió bien. Todo esto corre desde la máquina de desarrollo.
 
 ```bash
-# ¿El runner de la organización está disponible? (hacerlo ANTES de mergear)
+# ¿El runner de la organización está disponible? (requiere el scope admin:org)
 gh api /orgs/<org>/actions/runners --jq '.runners[] | "\(.name)  \(.status)  busy=\(.busy)"'
+
+# Alternativa sin admin:org: probar en vivo. Si pasa a in_progress (no Queued), ya funciona.
+gh workflow run deploy.yml --ref <rama-sin-tocar-produccion> && gh run watch
 
 # ¿Bajo qué cuenta está el repo? (si no es la organización, el runner no lo ve — §5.1)
 gh repo view --json nameWithOwner,isPrivate --jq '.'
