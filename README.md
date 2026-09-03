@@ -47,6 +47,54 @@ npx skills add brianpumarica/monorepo-skill --skill turborepo-orchestration
 
 ---
 
+## 🔄 Updating to the Latest Version
+
+If your project already uses this suite and you want to pull the latest updates, bug fixes, or new skills:
+
+### Option 1: Via `skills.sh` CLI (Recommended)
+
+```bash
+# Update all installed skills in your current project to the latest version
+npx skills update
+
+# Update automatically without prompts
+npx skills update -y
+
+# Update globally installed skills
+npx skills update -g -y
+
+# Force re-sync / update all skills across all agents
+npx skills add brianpumarica/monorepo-skill --all -y
+```
+
+> 💡 **Update a specific skill only:**
+> ```bash
+> npx skills update fullstack-monorepo
+> ```
+
+### Option 2: Via Git (If using as Upstream Remote or Template)
+
+If you cloned or imported this repository directly into an existing repository:
+
+#### A. Using Git Remote Upstream
+```bash
+# 1. Add this repo as an upstream remote (run once)
+git remote add upstream-skills https://github.com/brianpumarica/monorepo-skill.git
+
+# 2. Fetch the latest releases and commits
+git fetch upstream-skills
+
+# 3. Merge upstream updates into your current branch
+git merge upstream-skills/main --allow-unrelated-histories
+```
+
+#### B. Using Git Subtree (e.g. inside `skills/` or `.agents/skills/`)
+```bash
+git subtree pull --prefix skills https://github.com/brianpumarica/monorepo-skill.git main --squash
+```
+
+---
+
 ## 🏛️ Architecture Overview
 
 ```
