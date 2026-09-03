@@ -99,6 +99,11 @@ networks:
 
 ## 2. `docker-compose.prod.yml` (Production for Raspberry Pi / VPS)
 
+> [!IMPORTANT]
+> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los cinco deltas
+> obligatorios de §4**: rotación de logs, variables requeridas, nombre de imagen por entorno,
+> hardening por servicio y sincronía de defaults.
+
 ```yaml
 services:
   database:
@@ -169,3 +174,72 @@ docker compose -f docker-compose.prod.yml ps
 docker logs -f ${PROJECT_NAME:-app}-backend-prod
 ```
 
+---
+
+## 4. Endurecimiento Obligatorio del Compose de Producción
+
+Cuatro deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
+en un host compartido.
+
+### 4.1 Rotación de logs
+
+Sin esto, un solo proyecto llena el disco de todos los que conviven en el servidor.
+
+```yaml
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### 4.2 Variables obligatorias que fallan al levantar
+
+En producción, una credencial ausente tiene que impedir el arranque — no degradarse a un default
+de desarrollo:
+
+```yaml
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+```
+
+### 4.3 Nombre de imagen distinto por entorno
+
+Si dev y prod construyen al mismo nombre, levantar producción sin `--build` puede dejar corriendo
+la imagen de desarrollo — con el servidor de desarrollo en lugar del servidor real.
+
+```yaml
+    build:
+      context: .
+      target: production
+    image: ${PROJECT_NAME:-app}-backend-prod   # dev usa -backend-dev
+```
+
+### 4.4 Hardening por servicio — dónde sí y dónde no
+
+```yaml
+    security_opt:
+      - no-new-privileges:true    # en TODOS los servicios
+    cap_drop:
+      - ALL                       # SÓLO en el servicio de aplicación
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 512M }
+        reservations: { memory: 256M }
+```
+
+| Servicio | `no-new-privileges` | `cap_drop: [ALL]` | Motivo |
+| :--- | :---: | :---: | :--- |
+| Aplicación / API | ✅ | ✅ | Corre como usuario sin privilegios, no bindea puertos <1024, no hace `setuid` |
+| Base de datos | ✅ | ❌ | El entrypoint oficial necesita `SETUID`/`SETGID` para bajar privilegios |
+| Servidor web (nginx) | ✅ | ❌ | Maneja sus propios `setuid` internos al arrancar como root |
+
+> Verificar siempre con `docker compose -f docker-compose.prod.yml config` y con un
+> `up -d --build --force-recreate` completo: el hardening rompe en el arranque, no en el `config`.
+
+### 4.5 El default del compose anula el default de la aplicación
+
+Cuando el compose define una variable —aunque sea con `${VAR:-valor}`—, **la variable siempre
+existe dentro del contenedor**, así que el default que tenga la aplicación en su código nunca se
+aplica. Los dos tienen que decir lo mismo, o el valor del compose es el único que manda.

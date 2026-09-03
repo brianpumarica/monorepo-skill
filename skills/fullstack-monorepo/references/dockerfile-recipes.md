@@ -187,3 +187,47 @@ COPY --chown=node:node --from=build /app/apps/web/public ./apps/web/public
 EXPOSE 8084
 CMD ["node", "apps/web/server.js"]
 ```
+---
+
+## 5. Trampas de Build Verificadas en Producción
+
+### 5.1 Los scripts de mantenimiento no van en el build
+
+**Regla genérica:** el build de producción compila **sólo** el directorio fuente de la aplicación.
+Los scripts de mantenimiento (seeders, exportadores, generadores) viven fuera y se excluyen en
+bloque —por directorio, nunca archivo por archivo—, porque el próximo que se agregue no va a estar
+en la lista.
+
+> **No contradice la compilación del seeder de §1.** Ahí el seeder se compila con una invocación
+> `tsc` **propia**, con su propio `outDir`: eso es correcto y deliberado. La regla habla del build
+> de la aplicación (`tsconfig.build.json` / `nest build`), donde un archivo de más mueve la raíz de
+> salida de todo lo demás.
+
+**Cómo se manifiesta en TypeScript:** basta un `.ts` incluido fuera de `src/` para que el
+compilador suba el `rootDir` un nivel. La salida deja de ser `dist/main.js` y pasa a
+`dist/src/main.js`, mientras el `CMD` de la imagen sigue apuntando a la ruta vieja:
+
+```
+Error: Cannot find module '/app/dist/main'
+```
+
+El contenedor entra en crash-loop. En `tsconfig.build.json`, excluir el directorio entero:
+
+```json
+{ "exclude": ["node_modules", "test", "dist", "prisma/**"] }
+```
+
+> Se detecta sólo levantando la imagen de producción. Ni el type-check ni los tests lo ven, y el
+> despliegue conserva el contenedor anterior hasta que el nuevo levanta — así que puede pasar
+> semanas sin notarse.
+
+### 5.2 La imagen final debe traer todo lo que el entrypoint necesita
+
+Si el entrypoint corre migraciones o un seeder, sus binarios tienen que estar **dentro** de la
+imagen. Si no, se descargan en cada arranque y el contenedor depende de la red para levantar —y
+falla en silencio cuando no hay.
+
+```bash
+# Verificación tras construir la imagen de producción:
+docker run --rm --entrypoint sh <imagen> -c 'ls node_modules/.bin | grep -E "prisma|tsx|alembic"'
+```

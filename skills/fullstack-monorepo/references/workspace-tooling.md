@@ -1,5 +1,11 @@
 # Workspace Tooling & Package Orchestration (pnpm + Turborepo)
 
+> [!NOTE]
+> **No impongas la herramienta.** Un monorepo con npm y scripts de orquestación en el
+> `package.json` raíz cumple el estándar igual que uno con pnpm + Turborepo. Migrar a pnpm/Turbo
+> sin que nadie lo haya pedido es ruido, no cumplimiento: aplicá esta referencia sólo si el
+> proyecto ya usa esas herramientas o si el volumen de paquetes lo justifica.
+
 ---
 
 ## 1. Root `package.json`
