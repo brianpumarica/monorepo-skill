@@ -285,9 +285,16 @@ Antes de copiar, dejar registrado el hash del original para poder verificar del 
 > hashes distintos, y el operador termina creyendo que el pegado se corrompió cuando está
 > perfecto. Hay que excluir esas dos líneas **de los dos lados**.
 
+> [!WARNING]
+> **Usar la clase de caracteres `[\]`, no `\\`.** El patrón `'^\\(restrict|unrestrict)'` filtra
+> bien en el grep de Linux pero **no filtra nada en Git Bash de Windows**, que se come los
+> backslashes antes de que grep los vea — y como `grep -v` sin coincidencias devuelve el
+> archivo entero, el hash sale igual al crudo y no hay ningún error que lo delate. Es el peor
+> tipo de fallo: silencioso y de un solo lado. `[\]` funciona en los dos.
+
 ```bash
 docker exec <contenedor-db> pg_dump -U <usuario> -d <base> \
-  | grep -vE '^\\(restrict|unrestrict)' | sha256sum
+  | grep -vE '^[\](un)?restrict ' | sha256sum
 ```
 
 ### 7.2 En la máquina local — reconstruir y verificar
@@ -296,8 +303,8 @@ Pegar el bloque (sin los delimitadores) en `dump.b64` y decodificar:
 
 ```bash
 base64 -d dump.b64 | gunzip > dump.sql
-grep -vE '^\\(restrict|unrestrict)' dump.sql | sha256sum   # debe coincidir con el del servidor
-grep -c '' dump.sql                                        # sanity check: cantidad de lineas
+grep -vE '^[\](un)?restrict ' dump.sql | sha256sum   # debe coincidir con el del servidor
+grep -c '' dump.sql                                  # sanity check: cantidad de lineas
 ```
 
 **No suprimir los errores de `gunzip`.** Un `2>/dev/null` de más convierte un volcado truncado
