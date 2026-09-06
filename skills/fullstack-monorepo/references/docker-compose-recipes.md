@@ -10,27 +10,96 @@
 
 ## 0. Contrato de nombres (compose ↔ workflow ↔ `.env`)
 
-Estos nombres son **un contrato entre archivos**, no una preferencia de estilo: el compose los
-publica, el `.env` del servidor los define y el smoke test del
-[workflow de deploy](./ci-cd-deployment-pipeline.md) §2 los consume. Un sinónimo plausible
-—`BACKEND_HOST_PORT` en vez de `HOST_PORT_BACKEND`— no rompe nada de forma visible: cae al valor
-por defecto y el smoke test prueba un puerto que nadie está usando.
+**Estos nombres son obligatorios y no se renombran por proyecto.** El compose los publica, el
+`.env` del servidor los define y el smoke test del
+[workflow de deploy](./ci-cd-deployment-pipeline.md) §2 los consume. Que sean siempre los mismos
+es lo que permite que el YAML del workflow sea **idéntico en todos los repositorios** y que un
+`.env` se lea igual en cualquiera de ellos.
 
-| Variable | Qué es | Dónde se usa |
+**Un sinónimo plausible no rompe de forma visible, y ese es el problema.** Si el compose publica
+`BACKEND_HOST_PORT` y el workflow lee `HOST_PORT_BACKEND` —o `API_PORT`, o `PORT_BACKEND`—, la
+expansión cae al valor por defecto y el smoke test prueba alegremente un puerto que no usa nadie.
+El job sale verde. Por eso la ortografía exacta es parte del estándar, no una preferencia.
+
+### Puertos
+
+| Variable | Qué es | Dónde |
 | :--- | :--- | :--- |
-| `PROJECT_NAME` | Prefijo de contenedores, imágenes y volumen | ambos compose |
-| `HOST_PORT_BACKEND` | Puerto del **host** hacia la API | compose dev/prod + smoke test del workflow |
-| `HOST_PORT_FRONTEND` | Puerto del **host** hacia el front de desarrollo | compose dev |
-| `HOST_PORT_DB` | Puerto del **host** hacia Postgres — **sólo dev** | compose dev |
 | `PORT` | Puerto **interno** del contenedor de la API | ambos compose + la app |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credenciales; también las lee el entrypoint | ambos compose + `entrypoint.sh` |
+| `BACKEND_HOST_PORT` | Puerto del **host** hacia la API | ambos compose + smoke test del workflow |
+| `FRONTEND_HOST_PORT` | Puerto del **host** hacia el front de desarrollo | compose dev |
+| `DB_HOST_PORT` | Puerto del **host** hacia Postgres — **sólo desarrollo** | compose dev |
 
-**Contexto de build según layout** (ver [`dockerfile-recipes.md`](./dockerfile-recipes.md)):
+### Base de datos y credenciales
 
-| Layout | `context` | `dockerfile` |
-| :--- | :--- | :--- |
-| `apps/api` + `apps/web` (pnpm workspaces) | `.` | `./apps/api/Dockerfile` |
-| `backend/` + `frontend/` (npm, sin workspaces) | `./backend` | `Dockerfile` |
+| Variable | Qué es |
+| :--- | :--- |
+| `POSTGRES_IMAGE` | Imagen de Postgres (permite fijar la versión) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credenciales. **También las lee `entrypoint.sh`** para esperar a la base |
+| `DATABASE_URL` | Cadena de conexión que consume la aplicación |
+| `JWT_SECRET` / `JWT_EXPIRES_IN` | Firma de tokens |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Alta del administrador. `ADMIN_PASSWORD` es **obligatoria en producción** |
+| `ADMIN_PASSWORD_RESET` | Vía de recuperación, `false` por defecto ([`database-lifecycle.md`](./database-lifecycle.md) §2) |
+
+### Nombres de recursos de Docker
+
+Un par por entorno: el sufijo separa desarrollo de producción, y el **valor** lleva el prefijo del
+proyecto (§0.1).
+
+| Variable | Ejemplo de valor |
+| :--- | :--- |
+| `DB_DEV_CONTAINER_NAME` / `DB_CONTAINER_NAME` | `acme-database-dev` / `acme-database` |
+| `BACKEND_DEV_CONTAINER_NAME` / `BACKEND_PROD_CONTAINER_NAME` | `acme-back-dev` / `acme-back-prod` |
+| `FRONTEND_DEV_CONTAINER_NAME` | `acme-front-dev` |
+| `BACKEND_DEV_IMAGE` / `BACKEND_PROD_IMAGE` | `acme-backend-dev` / `acme-backend-prod` |
+| `FRONTEND_DEV_IMAGE` | `acme-frontend-dev` |
+| `VOLUME_PGDATA_DEV_NAME` / `VOLUME_PGDATA_NAME` | `acme_pgdata-dev` / `acme_pgdata` |
+
+> **Los nombres de variable son fijos; los valores llevan el prefijo del proyecto.** Variables
+> separadas para desarrollo y producción, nunca una sola: con una sola, el `.env` del servidor
+> apunta los dos entornos al mismo contenedor y al mismo volumen — y levantar desarrollo ahí se
+> lleva puesta la base productiva.
+
+### Verificación
+
+Antes de dar un deploy por bueno, los cuatro archivos tienen que coincidir:
+
+```bash
+for v in PORT BACKEND_HOST_PORT FRONTEND_HOST_PORT DB_HOST_PORT VOLUME_PGDATA_NAME; do
+  printf '%-24s compose:%s prod:%s env:%s workflow:%s\n' "$v" \
+    "$(grep -c "$v" docker-compose.yml)" "$(grep -c "$v" docker-compose.prod.yml)" \
+    "$(grep -c "^$v=" .env.example)" "$(grep -rc "$v" .github/workflows/ | cut -d: -f2)"
+done
+```
+
+Un `0` donde debería haber al menos `1` es exactamente el fallo silencioso de arriba.
+
+### 0.1 En un host compartido, el prefijo por proyecto no es cosmético
+
+Cuando el servidor hospeda varios proyectos, **todo nombre global de Docker es un espacio de
+nombres compartido**: contenedores, imágenes, volúmenes y redes. Dos proyectos que elijan
+`database` o `pgdata` se pisan, y el segundo en desplegar gana sin avisar.
+
+| Recurso | Patrón |
+| :--- | :--- |
+| Contenedor | `<proyecto>-<servicio>-<entorno>` — `acme-database-dev`, `acme-back-prod` |
+| Imagen | `<proyecto>-<servicio>-<entorno>` |
+| Volumen | `<proyecto>_<datos>` — `acme_pgdata` |
+| Red | propia del proyecto, declarada en el compose |
+
+Son **dos ejes distintos y los dos hacen falta**: el prefijo separa un proyecto de sus vecinos, y
+el sufijo de entorno separa desarrollo de producción **dentro** del mismo proyecto (§4.3). Faltar
+el primero rompe a otro equipo; faltar el segundo se lleva puesta tu propia base productiva
+cuando alguien levanta desarrollo en el servidor.
+
+```bash
+# Antes de elegir nombres y puertos para un proyecto nuevo, ver que hay tomado:
+docker ps -a --format 'table {{.Names}}\t{{.Ports}}'
+docker volume ls
+```
+
+El `context` y el `dockerfile` de cada servicio dependen del layout del repo, que es un eje
+aparte: está en el §0 de [`dockerfile-recipes.md`](./dockerfile-recipes.md).
 
 ---
 
@@ -43,7 +112,7 @@ services:
     container_name: ${PROJECT_NAME:-app}-database
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_DB:-5432}:5432"
+      - "${DB_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -68,7 +137,7 @@ services:
     container_name: ${PROJECT_NAME:-app}-backend-dev
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_BACKEND:-3004}:${PORT:-3004}"
+      - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
     depends_on:
       database:
         condition: service_healthy
@@ -102,7 +171,7 @@ services:
     container_name: ${PROJECT_NAME:-app}-frontend-dev
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_FRONTEND:-8084}:${FRONTEND_PORT:-8084}"
+      - "${FRONTEND_HOST_PORT:-8084}:${FRONTEND_PORT:-8084}"
     depends_on:
       - backend
     environment:
@@ -148,7 +217,7 @@ services:
     # en un host compartido expone la base a todo lo que corra en la maquina y colisiona con
     # el Postgres de cualquier otro proyecto. Para depurar puntualmente, atarlo al loopback y
     # sacarlo despues:
-    #   ports: ["127.0.0.1:${HOST_PORT_DB:-5432}:5432"]
+    #   ports: ["127.0.0.1:${DB_HOST_PORT:-5432}:5432"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -172,7 +241,7 @@ services:
     container_name: ${PROJECT_NAME:-app}-backend-prod
     restart: unless-stopped
     ports:
-      - "${HOST_PORT_BACKEND:-3004}:${PORT:-3004}"
+      - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
     depends_on:
       database:
         condition: service_healthy

@@ -1,28 +1,58 @@
 # Multi-Stage Dockerfile Templates
 
 > [!IMPORTANT]
-> **Elegí la variante por gestor de paquetes y layout, no por gusto.** Las recetas §1 y §4 asumen
-> **pnpm + workspaces + `apps/api` / `apps/web`** y contexto de build en la raíz del monorepo. Las
-> §2 y §5 asumen **npm sin workspaces + `backend/` / `frontend/`** y contexto de build en la
-> carpeta de cada app. Aplicar una receta pnpm sobre un repo con `package-lock.json` obliga a una
-> migración que [`workspace-tooling.md`](./workspace-tooling.md) desaconseja explícitamente.
+> **El gestor de paquetes y el layout son dos ejes INDEPENDIENTES.** Se eligen por separado, y un
+> repo puede combinarlos como quiera: npm con carpeta `apps/`, o pnpm con `backend/`+`frontend/`.
+> Las recetas numeradas son combinaciones frecuentes, no las únicas válidas: si tu repo cae entre
+> dos, tomá los comandos de una y las rutas de la otra.
 
-| Layout del repo | Lockfile | Backend | Frontend SPA | `context` del compose |
-| :--- | :--- | :--- | :--- | :--- |
-| `apps/api` + `apps/web` | `pnpm-lock.yaml` | §1 | §4 | `.` (raíz) |
-| `backend/` + `frontend/` | `package-lock.json` | §2 | §5 | `./backend` / `./frontend` |
-| Cualquiera | `requirements.txt` | §3 | — | según layout |
+**Eje 1 — el lockfile manda: define los comandos de instalación y de poda.**
+
+| Lockfile | Instalar | Podar para producción | Cache mount |
+| :--- | :--- | :--- | :--- |
+| `package-lock.json` | `npm ci` | `npm prune --production` | `/root/.npm` |
+| `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` | `pnpm --prod deploy <destino>` | `/pnpm/store` |
+| `requirements.txt` | `pip install -r` en un venv aislado | (no aplica) | — |
+
+Migrar de gestor sin que nadie lo haya pedido es ruido, no cumplimiento
+([`workspace-tooling.md`](./workspace-tooling.md)).
+
+**Eje 2 — el layout manda: define el `context` del build y las rutas de los `COPY`.**
+
+| Layout | `context` | `dockerfile` | Rutas dentro del Dockerfile |
+| :--- | :--- | :--- | :--- |
+| Apps en subcarpetas (`apps/api`, `apps/web`) | `.` (raíz) | `./apps/api/Dockerfile` | `COPY apps/api/... `, y el `WORKDIR` **no** es la carpeta de la app |
+| Apps en la raíz (`backend/`, `frontend/`) | `./backend` | `Dockerfile` | `COPY . .` sobre la app sola |
+
+> Con apps en subcarpetas hay **workspaces sólo si el gestor los declara** (`pnpm-workspace.yaml`,
+> o `workspaces` en el `package.json` raíz). Sin eso, cada app se instala sola aunque viva en
+> `apps/`, y el contexto puede seguir siendo la raíz nada más que para compartir archivos.
+
+**Combinaciones ya escritas:**
+
+| Receta | Lockfile | Layout | Qué es |
+| :--- | :--- | :--- | :--- |
+| §1 | pnpm + workspaces | `apps/` | Backend Node |
+| §2 | npm | apps en la raíz | Backend Node |
+| §3 | `requirements.txt` | cualquiera | Backend Python |
+| §4 | pnpm + workspaces | `apps/` | Frontend SPA |
+| §5 | npm | apps en la raíz | Frontend SPA |
+| §6 | pnpm + workspaces | `apps/` | Frontend Next.js SSR |
+| §7 | cualquiera | cualquiera | Frontend Expo Web |
+
+> **Si tu combinación no está**: el `.dockerignore` va **junto a cada contexto de build**. Uno en
+> la raíz sirve para `context: .`, pero es invisible para `context: ./backend`.
 
 > [!WARNING]
 > **Toda imagen cuyo `ENTRYPOINT` sea `entrypoint.sh` necesita `pg_isready` adentro.**
 > Ni `node:22-alpine` ni `python:3.12-slim` lo traen: hay que instalar `postgresql-client` en la
 > etapa `base`, para que lo hereden **desarrollo y producción**. Sin eso el entrypoint de
 > [`database-lifecycle.md`](./database-lifecycle.md) §1 aborta el arranque y el contenedor nunca
-> levanta (§7.3).
+> levanta (§8.3).
 
 ---
 
-## 1. Backend: Node.js / NestJS / Express (pnpm + workspaces)
+## 1. Backend: Node.js / NestJS / Express — pnpm + workspaces, apps en `apps/`
 
 `apps/api/Dockerfile` — contexto de build: **raíz del monorepo**.
 
@@ -58,7 +88,7 @@ COPY . .
 RUN if [ -f apps/api/prisma/schema.prisma ]; then pnpm --filter api exec prisma generate; fi
 RUN pnpm --filter api build
 # El seeder se compila con su propia invocacion de tsc y su propio outDir: NO entra al build
-# de la aplicacion (§7.1 explica por que eso moveria el rootDir de todo lo demas).
+# de la aplicacion (§8.1 explica por que eso moveria el rootDir de todo lo demas).
 RUN if [ -f apps/api/prisma/seed.ts ]; then \
       pnpm --filter api exec tsc prisma/seed.ts --outDir dist/prisma --target ES2022 --module CommonJS; \
     fi
@@ -87,11 +117,11 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "dist/main.js"]
 ```
 
-> Verificá la imagen antes de confiar en ella — §7.2 trae los comandos exactos.
+> Verificá la imagen antes de confiar en ella — §8.2 trae los comandos exactos.
 
 ---
 
-## 2. Backend: Node.js / NestJS / Express (npm, sin workspaces)
+## 2. Backend: Node.js / NestJS / Express — npm, apps en la raíz
 
 Para el layout `backend/` + `frontend/` en la raíz, cada uno con su `package-lock.json`.
 `backend/Dockerfile` — contexto de build: **`./backend`**.
@@ -196,7 +226,7 @@ CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "3004", "--w
 
 ---
 
-## 4. Frontend SPA: Vite / React / Expo Web (pnpm + workspaces)
+## 4. Frontend SPA: Vite / React — pnpm + workspaces, apps en `apps/`
 
 `apps/web/Dockerfile` — contexto de build: **raíz del monorepo**.
 
@@ -237,7 +267,7 @@ CMD ["nginx", "-g", "daemon off;"]
 
 ---
 
-## 5. Frontend SPA: Vite / React (npm, sin workspaces)
+## 5. Frontend SPA: Vite / React — npm, apps en la raíz
 
 `frontend/Dockerfile` — contexto de build: **`./frontend`**.
 
@@ -342,9 +372,79 @@ CMD ["node", "apps/web/server.js"]
 
 ---
 
-## 7. Trampas de Build Verificadas en Producción
+## 7. Frontend: Expo Web
 
-### 7.1 Los scripts de mantenimiento no van en el build
+Expo compila la web a **archivos estáticos**, así que la etapa de producción es la misma que la
+de cualquier SPA. Lo que cambia es el **comando de desarrollo** y el **de build**: no son los de
+Vite, y confundirlos es la razón habitual por la que "la receta de SPA no funciona".
+
+| | Vite | Expo |
+| :--- | :--- | :--- |
+| Desarrollo | `vite` | `expo start --web` |
+| Build | `vite build` | `expo export -p web` |
+| Salida | `dist/` | `dist/` *(igual, por eso la etapa de producción se comparte)* |
+| Variables horneadas | `VITE_*` | `EXPO_PUBLIC_*` |
+
+Ajustá las rutas según el layout (§0): con apps en la raíz el contexto es `./frontend`; con apps
+en subcarpetas es la raíz y los `COPY` llevan el prefijo.
+
+```dockerfile
+FROM node:22-alpine AS base
+WORKDIR /app
+
+FROM base AS development
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY . .
+# CI=1 evita los prompts interactivos de Expo dentro del contenedor.
+ENV CI=1 CHOKIDAR_USEPOLLING=true
+EXPOSE 8081
+CMD ["npx", "expo", "start", "--web", "--port", "8081", "--host", "lan"]
+
+FROM base AS build
+# EXPO_PUBLIC_* se hornea en el bundle en BUILD-TIME. Si no llega como ARG aca, la app sale
+# apuntando al valor por defecto del codigo y ninguna llamada al backend funciona (§8.4).
+ARG EXPO_PUBLIC_API_URL
+ENV EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY . .
+RUN npx expo export -p web
+RUN test -d dist || (echo "ERROR: expo export no genero dist/"; exit 1)
+
+FROM nginx:alpine AS production
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+En el compose de desarrollo, volumen anónimo para la caché de Expo, igual que `.next` en Next.js:
+
+```yaml
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.expo
+```
+
+`expo-router` hace ruteo del lado del cliente, así que necesita el mismo fallback SPA que
+cualquier otra: el `nginx.conf` de §5 y, si además va a Vercel, el `vercel.json` con rewrites.
+
+> [!NOTE]
+> **Al pasar de app nativa a Expo Web, no todo el SDK viaja.** Varios módulos tienen en web una
+> implementación recortada que **no falla, simplemente hace menos**, y eso es peor que un error:
+> la pantalla abre, parece andar, y no cumple. Antes de dar por migrada una pantalla que usa
+> hardware (cámara, bluetooth, sistema de archivos), abrí la implementación `.web.js` del módulo
+> en `node_modules` y confirmá qué hace de verdad. Si el soporte web no alcanza, la salida es un
+> componente con variante por plataforma (`Componente.tsx` + `Componente.web.tsx`): Metro elige
+> solo, y el código nativo queda intacto.
+
+---
+
+## 8. Trampas de Build Verificadas en Producción
+
+### 8.1 Los scripts de mantenimiento no van en el build
 
 **Regla genérica:** el build de producción compila **sólo** el directorio fuente de la aplicación.
 Los scripts de mantenimiento (seeders, exportadores, generadores) viven fuera y se excluyen en
@@ -373,7 +473,7 @@ El contenedor entra en crash-loop. En `tsconfig.build.json`, excluir el director
 > Los `RUN test -f dist/main.js || ... exit 1` de §1 y §2 existen exactamente para esto: convierten
 > un crash-loop que puede pasar semanas inadvertido en un build rojo, en el momento.
 
-### 7.2 La imagen final debe traer todo lo que el entrypoint necesita
+### 8.2 La imagen final debe traer todo lo que el entrypoint necesita
 
 Si el entrypoint corre migraciones o un seeder, sus binarios tienen que estar **dentro** de la
 imagen. Si no, se descargan en cada arranque y el contenedor depende de la red para levantar —y
@@ -386,7 +486,7 @@ docker run --rm --entrypoint sh <imagen> -c "ls node_modules/.bin | grep -E 'pri
 docker run --rm --entrypoint sh <imagen> -c "ls -d node_modules/.prisma || echo 'sin cliente Prisma generado'"
 ```
 
-### 7.3 `pg_isready` no viene en las imágenes base
+### 8.3 `pg_isready` no viene en las imágenes base
 
 `node:22-alpine` y `python:3.12-slim` **no incluyen** `pg_isready`. Un `entrypoint.sh` que lo
 invoca en una imagen sin `postgresql-client` no falla de forma obvia: agota el ciclo de reintentos
@@ -402,3 +502,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends postgresql-clie
 Va en la etapa `base` —la que heredan desarrollo **y** producción—, nunca en una sola. El
 entrypoint de [`database-lifecycle.md`](./database-lifecycle.md) §1 además chequea que el binario
 exista y aborta con un mensaje explícito si falta, en vez de esperar los 30 reintentos.
+
+### 8.4 La caché del bundler puede hornear una variable vieja
+
+Las variables públicas de front (`VITE_*`, `NEXT_PUBLIC_*`, `EXPO_PUBLIC_*`) **no se leen en
+runtime**: se incrustan en el bundle durante el build. La consecuencia poco conocida es que
+**la caché del bundler no siempre las considera parte de la entrada**: se cambia el valor, se
+reconstruye, y sale el bundle anterior con el valor viejo adentro. Sin error, sin aviso.
+
+Verificado: dos `expo export` seguidos con distinto `EXPO_PUBLIC_API_URL` produjeron un bundle
+con **el mismo hash** y la URL anterior horneada. Recién con `--clear` tomó la nueva.
+
+**Cómo se manifiesta:** cambiás el dominio del backend, desplegás, el job sale verde, y la
+aplicación sigue llamando al anterior. Se parece a un problema de red o de CORS y no lo es.
+
+**Cómo se detecta —el único chequeo que no miente— es mirar dentro del bundle construido:**
+
+```bash
+grep -o "https://[a-z0-9.-]*" dist/**/*.js | sort -u | head
+```
+
+**Qué hacer:**
+
+- Ante cualquier cambio de una variable pública, construir con la caché limpia
+  (`expo export --clear`, `vite build --force`, o borrar `.next/cache`).
+- No confiar en que el hash del bundle cambió: **si no cambió, puede ser justamente el síntoma.**
+- Los servicios de despliegue también cachean entre corridas, así que esto no desaparece por
+  correr en CI. Después del primer despliegue con un valor nuevo, confirmarlo contra la
+  aplicación publicada, no contra el log del build.

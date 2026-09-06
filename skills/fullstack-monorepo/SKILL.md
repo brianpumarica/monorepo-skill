@@ -59,12 +59,13 @@ La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análi
 | Tecnología Detectada | Indicador en el Proyecto | Directivas Obligatorias Activadas |
 | :--- | :--- | :--- |
 | **Docker / Compose** | Hay Dockerfiles o `docker-compose*.yml` | • `.gitattributes` con `eol=lf` para scripts Linux en Windows.<br>• `.dockerignore` raíz centralizado.<br>• `docker-compose.yml` (dev-first sin flags) y `docker-compose.prod.yml`. |
-| **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• **`postgresql-client` en la etapa `base`** — sin él no hay `pg_isready` y el arranque muere (receta §7.3).<br>• BuildKit cache mount: `/root/.npm` con npm, `/pnpm/store` con pnpm.<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
-| **Gestor de paquetes** | `package-lock.json` vs `pnpm-lock.yaml` | • **El lockfile manda**: npm → recetas §2/§5; pnpm+workspaces → §1/§4. No migrar de gestor sin pedido explícito ([`workspace-tooling.md`](./references/workspace-tooling.md)).<br>• El `context` del build cambia con el layout (recetas §0). |
+| **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• **`postgresql-client` en la etapa `base`** — sin él no hay `pg_isready` y el arranque muere (receta §8.3).<br>• BuildKit cache mount: `/root/.npm` con npm, `/pnpm/store` con pnpm.<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
+| **Gestor de paquetes** | `package-lock.json` vs `pnpm-lock.yaml` | • **El lockfile manda** y define los comandos de instalación y poda. No migrar de gestor sin pedido explícito ([`workspace-tooling.md`](./references/workspace-tooling.md)). |
+| **Layout del repo** | Apps en `apps/*` vs. en la raíz | • **Eje independiente del gestor**: define el `context` del build y las rutas de los `COPY`. Cualquier combinación es válida (npm con `apps/`, pnpm con apps en la raíz).<br>• Las recetas numeradas son combinaciones frecuentes, no un menú cerrado: si el repo cae entre dos, se toman los comandos de una y las rutas de la otra (recetas §0).<br>• El `.dockerignore` va junto a **cada** contexto de build. |
 | **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` y `USER appuser` non-root.<br>• **`postgresql-client`** en la etapa `base` + `ENTRYPOINT` explícito (no sólo `CMD`).<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir <carpeta de la app>`. |
 | **Frontend SPA (Vite / React / Vue)** | `vite.config.ts` o index.html cliente | • `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y Gzip.<br>• `frontend/vercel.json` con rewrites para SPA.<br>• Servidor final ultra-ligero `nginx:alpine` (<10MB RAM). |
 | **Frontend SSR (Next.js)** | `next.config.js/ts` | • `output: 'standalone'` en producción.<br>• Volumen anónimo `/app/.next` y `WATCHPACK_POLLING=true`.<br>• Inyección de variables `NEXT_PUBLIC_*` en build-time. |
-| **Frontend Expo Web** | `app.json` / `eas.json` / dependencia `expo` | • **No es Vite**: dev es `expo start --web`, build es `expo export -p web` — que igual deja `dist/`, así que la receta SPA sirve para la salida.<br>• Variables `EXPO_PUBLIC_*` en build-time (mismo mecanismo que `NEXT_PUBLIC_*`).<br>• Volumen anónimo `/app/.expo`.<br>• Si además compila a móvil (`android/`, `ios/`), **la web es un target más**: no migrar el proyecto a Vite para "cumplir el estándar". |
+| **Frontend Expo Web** | `app.json` / `eas.json` / dependencia `expo` | • Receta propia (**§7** de `dockerfile-recipes.md`). **No es Vite**: dev es `expo start --web`, build es `expo export -p web` — la salida sí es `dist/`, por eso la etapa de producción se comparte con SPA.<br>• Variables `EXPO_PUBLIC_*` en build-time (mismo mecanismo que `NEXT_PUBLIC_*`).<br>• Volumen anónimo `/app/.expo`.<br>• Si además compila a móvil (`android/`, `ios/`), **la web es un target más**: no migrar el proyecto a Vite para "cumplir el estándar".<br>• Al migrar de nativo a web, verificar módulo por módulo qué soporta realmente la implementación `.web.js`: varios no fallan, sólo hacen menos. |
 | **PostgreSQL / Base de Datos** | SQL scripts, Prisma o Alembic | • Healthchecks activos con `pg_isready`.<br>• Volumen de datos nombrado persistente.<br>• Seeders seguros (variables de entorno, sin contraseñas hardcodeadas). |
 
 ---
@@ -136,8 +137,9 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | **Entrypoint con rutas relativas al `WORKDIR`** en un monorepo | **ANCLAR a la ubicación del script** (`APP_DIR` derivado de la ruta del propio script). Con `WORKDIR /app` y la app en `/app/apps/api`, ningún `if` matchea: migraciones y seed se saltean **en silencio**. |
 | Cualquier `\|\| true` en el build (`cp`, `tsc`, `prisma generate`) | **QUITARLO.** Convierte un build roto en una imagen incompleta que sólo se descubre como crash-loop, semanas después. |
 | Compose de **producción** publicando el puerto de Postgres al host | **QUITAR el `ports:` de la base.** El backend llega por la red interna; publicarlo expone la base a todo el host y colisiona con el Postgres de los vecinos. |
-| Recetas pnpm/workspaces aplicadas a un repo con `package-lock.json` | **USAR LA RECETA npm** (`dockerfile-recipes.md` §2/§5). Migrar de gestor de paquetes sin pedido explícito es ruido, no cumplimiento. |
-| Nombres de variables sinónimos entre compose y workflow (`BACKEND_HOST_PORT` vs `HOST_PORT_BACKEND`) | **RESPETAR el contrato de nombres** (`docker-compose-recipes.md` §0). El sinónimo no rompe: cae al default y el smoke test prueba un puerto que nadie usa. |
+| Recetas pnpm/workspaces aplicadas a un repo con `package-lock.json` | **USAR LOS COMANDOS DEL LOCKFILE** (`dockerfile-recipes.md` §0). Migrar de gestor de paquetes —o de layout— sin pedido explícito es ruido, no cumplimiento. |
+| Nombres genéricos de contenedor, imagen o volumen (`database`, `pgdata`, `backend`) en un host compartido | **PREFIJAR POR PROYECTO.** Los nombres de Docker son un espacio compartido en todo el host: dos proyectos que elijan `database` se pisan, y el segundo en desplegar gana sin avisar (`docker-compose-recipes.md` §0.1). |
+| Variables con nombre propio en vez del contrato (`HOST_PORT_BACKEND`, `API_PORT`… en lugar de `BACKEND_HOST_PORT`) | **RENOMBRAR AL CONTRATO** (`docker-compose-recipes.md` §0). Los nombres son fijos en todos los repositorios; sólo los valores cambian. Un sinónimo no rompe de forma visible: cae al default y el smoke test prueba un puerto que nadie usa, con el job en verde. |
 | `healthcheck` apuntando a `localhost` **dentro** del contenedor | **USAR `127.0.0.1`.** `localhost` resuelve a `::1` y la app escucha en IPv4: el contenedor queda `unhealthy` para siempre con la app perfectamente sana, y el deploy falla en cada corrida (`docker-compose-recipes.md` §4.7). |
 
 ---
@@ -179,19 +181,21 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 └── README.md                    # Guía de inicio rápido para desarrolladores
 ```
 
-### Variante npm sin workspaces (igual de válida)
+### Variante con las apps en la raíz (igual de válida)
 
-Cuando el repo tiene `package-lock.json` y las apps en la raíz, **no se migra el layout**: cambia
-el `context` del build y la receta de Dockerfile, nada más.
+**El layout no se migra.** Un repo con las apps en la raíz cumple el estándar igual que uno con
+`apps/`: cambia el `context` del build y las rutas de los `COPY`, nada más. Y el layout es
+**independiente del gestor de paquetes** — hay repos con npm y `apps/`, y con pnpm y las apps en
+la raíz. Ver `dockerfile-recipes.md` §0, que separa los dos ejes.
 
 ```
 <project-root>/
-├── backend/                     # package.json + package-lock.json propios
-│   ├── Dockerfile               # receta npm (dockerfile-recipes.md §2), context: ./backend
+├── backend/                     # manifiesto y lockfile propios
+│   ├── Dockerfile               # context: ./backend
 │   ├── entrypoint.sh
 │   └── .dockerignore
-├── frontend/                    # package.json + package-lock.json propios
-│   ├── Dockerfile               # receta npm (§5), context: ./frontend
+├── frontend/                    # manifiesto y lockfile propios
+│   ├── Dockerfile               # context: ./frontend
 │   ├── nginx.conf
 │   ├── vercel.json
 │   └── .dockerignore
@@ -223,7 +227,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Crear `entrypoint.sh` ejecutable, anclado con `APP_DIR` y con `exec "$@"` (`database-lifecycle.md` §1).
 - [ ] **Instalar `postgresql-client` en la etapa `base` del Dockerfile** — es lo que provee `pg_isready`; sin él el contenedor no arranca.
 - [ ] Configurar `Dockerfile` multi-stage (Node 22 / Python 3.12, `USER node` / `USER appuser`, BuildKit cache) — con `ENTRYPOINT` explícito **también en Python**.
-- [ ] Verificar la imagen construida antes de confiar en ella (`dockerfile-recipes.md` §7.2).
+- [ ] Verificar la imagen construida antes de confiar en ella (`dockerfile-recipes.md` §8.2).
 - [ ] Configurar hot-reload con polling (`CHOKIDAR_USEPOLLING=true` en el servicio de backend del compose, no sólo documentado).
 
 ### Fase 4: Frontend Production Readiness

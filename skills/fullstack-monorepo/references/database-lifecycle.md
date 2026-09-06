@@ -49,7 +49,7 @@ MAX_TRIES="${DB_WAIT_TRIES:-30}"
 if ! command -v pg_isready >/dev/null 2>&1; then
   echo "ERROR: falta pg_isready en la imagen."
   echo "       Instalar postgresql-client en la etapa 'base' del Dockerfile"
-  echo "       (dockerfile-recipes.md 7.3). Abortando."
+  echo "       (ver dockerfile-recipes.md). Abortando."
   exit 1
 fi
 

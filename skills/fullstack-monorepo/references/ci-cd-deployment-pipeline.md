@@ -132,9 +132,11 @@ jobs:
           fi
           echo "==> Smoke test against the health endpoint"
           set -a; . ./.env; set +a   # el shell del runner no tiene el .env cargado
-          # HOST_PORT_BACKEND es el nombre del contrato (docker-compose-recipes.md §0).
-          # Un sinonimo cae al default y el smoke test prueba un puerto que nadie usa.
-          curl -fsS "http://localhost:${HOST_PORT_BACKEND:-3004}/health" \
+          # BACKEND_HOST_PORT es el nombre del contrato (docker-compose-recipes.md §0) y no se
+          # renombra por proyecto: es lo que permite que este YAML sea identico en todos los
+          # repositorios. Un sinonimo cae al default y el smoke test prueba un puerto que no
+          # usa nadie, con el job saliendo verde.
+          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}/health" \
             || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; exit 1; }
           echo "✅ Deployment verified."
 ```
@@ -237,7 +239,7 @@ jobs:
   entrypoint interpreta "comando inexistente" (exit 127) como "base no lista" y agota los
   reintentos.
 - **Solution**: instalar `postgresql-client` en la etapa `base` del Dockerfile
-  ([`dockerfile-recipes.md`](./dockerfile-recipes.md) §7.3) y usar el entrypoint de
+  ([`dockerfile-recipes.md`](./dockerfile-recipes.md) §8.3) y usar el entrypoint de
   [`database-lifecycle.md`](./database-lifecycle.md) §1, que verifica el binario **antes** del
   loop y aborta con un mensaje que dice lo que realmente pasa.
 
