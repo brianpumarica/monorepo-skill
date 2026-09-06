@@ -132,7 +132,9 @@ jobs:
           fi
           echo "==> Smoke test against the health endpoint"
           set -a; . ./.env; set +a   # el shell del runner no tiene el .env cargado
-          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}/health" \
+          # HOST_PORT_BACKEND es el nombre del contrato (docker-compose-recipes.md §0).
+          # Un sinonimo cae al default y el smoke test prueba un puerto que nadie usa.
+          curl -fsS "http://localhost:${HOST_PORT_BACKEND:-3004}/health" \
             || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; exit 1; }
           echo "✅ Deployment verified."
 ```
@@ -188,12 +190,18 @@ jobs:
 
 ### 4. Production Database Seeder Execution
 - **Problem**: In production images where `devDependencies` are pruned, `ts-node` is missing and `prisma/seed.ts` fails silently or crashes the entrypoint.
-- **Solution**: 
-  1. In `apps/api/Dockerfile` (build stage), compile TypeScript seeders:
-     `RUN npx tsc prisma/seed.ts --outDir dist/prisma --target ES2022 --module CommonJS || true`
-  2. In `entrypoint.sh`, execute compiled JS directly:
-     `node dist/prisma/seed.js || node dist/seed.js || true`
+- **Solution**:
+  1. In the Dockerfile build stage, compile the seeder with **its own** `tsc` invocation and
+     `outDir` — y **sin `|| true`**: un seeder que no compila tiene que romper el build, no
+     producir una imagen a la que le falta un archivo
+     (`RUN if [ -f prisma/seed.ts ]; then npx --no-install tsc prisma/seed.ts --outDir dist/prisma --target ES2022 --module CommonJS; fi`).
+  2. In `entrypoint.sh`, pick the compiled JS with an `if`/`elif` — no con una cadena de
+     `||` que termina en `true` y se traga cualquier error de ejecución
+     ([`database-lifecycle.md`](./database-lifecycle.md) §1).
   3. Ensure `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `seed.ts` are read strictly from `process.env` (throw an error if not present, never fallback to known insecure defaults).
+  4. Keep `prisma` in `dependencies`: `npm ci --omit=dev` rebuilds `node_modules` from scratch,
+     so the generated client must be produced **after** the prune
+     ([`dockerfile-recipes.md`](./dockerfile-recipes.md) §2).
 
 ### 5. Multi-line YAML Heredoc Syntax Errors (`wanted 'EOF'`)
 - **Problem**: `Invalid workflow file: warning: here-document delimited by end-of-file (wanted 'EOF')`.
@@ -221,6 +229,28 @@ jobs:
 - **Problem**: A variable is changed in `.env.example`, merged and deployed — and production keeps the old value.
 - **Causa**: `.env` is git-ignored, so it only exists on the server and no deploy ever rewrites it. Only the tracked `.env.example` moves.
 - **Solution**: Any change to `.env.example` carries a manual step on the server: edit `.env`, re-create the container (§8), and copy the file back to the per-repository store (§5.2). Never let the workflow "fix" it by falling back to the template.
+
+### 10. `pg_isready` Missing from the Image (Deploy Hangs, Then Blames the Database)
+- **Problem**: el job levanta los contenedores, el backend nunca pasa a `healthy` y el log dice
+  `Database not ready yet (30/30)`. La base está perfectamente arriba.
+- **Causa**: `node:22-alpine` y `python:3.12-slim` no traen `pg_isready`. El `until` del
+  entrypoint interpreta "comando inexistente" (exit 127) como "base no lista" y agota los
+  reintentos.
+- **Solution**: instalar `postgresql-client` en la etapa `base` del Dockerfile
+  ([`dockerfile-recipes.md`](./dockerfile-recipes.md) §7.3) y usar el entrypoint de
+  [`database-lifecycle.md`](./database-lifecycle.md) §1, que verifica el binario **antes** del
+  loop y aborta con un mensaje que dice lo que realmente pasa.
+
+### 11. Healthcheck Contra `localhost` Dentro del Contenedor (Deploy Rojo con la App Sana)
+- **Problem**: el smoke test pasa, `curl` desde el host devuelve 200 — y el contenedor queda
+  `unhealthy` para siempre, así que el paso de verificación falla el job en cada deploy.
+- **Causa**: dentro del contenedor `localhost` resuelve a `::1`. Una app que escucha en `0.0.0.0`
+  escucha en IPv4: el healthcheck se conecta por IPv6 y recibe `connection refused`.
+- **Solution**: `127.0.0.1` en el `healthcheck` del compose
+  ([`docker-compose-recipes.md`](./docker-compose-recipes.md) §4.7). El smoke test del workflow,
+  que corre en el host, sí puede usar `localhost`.
+- **Cómo confirmarlo**: `docker inspect <contenedor> --format '{{json .State.Health}}'` — el
+  campo `Output` trae el error exacto de cada intento.
 
 ---
 
@@ -295,11 +325,35 @@ docker ps --format 'table {{.Names}}\t{{.Ports}}'
 
 ---
 
-## 6. Catálogo de Diagnóstico (*modo `/inspecciona`*)
+## 6. Catálogo de Diagnóstico (*modo `inspecciona`*)
 
 Comandos **exclusivamente de lectura**, para ejecutar en el servidor y responder "¿en qué estado
 está producción realmente?" antes de proponer cualquier cambio. Ninguno modifica nada, así que se
 pueden pegar sin riesgo — también en una terminal web sin SSH.
+
+### 6.0 Antes que nada: ¿el pipeline llegó a correr alguna vez?
+
+Todo corre desde la máquina de desarrollo, con `gh`. **Si nunca hubo un deploy exitoso, no hay
+nada desplegado que inspeccionar** y el resto del catálogo es ruido.
+
+```bash
+gh repo view --json nameWithOwner,isPrivate --jq '.'      # ¿esta bajo la organizacion? (§5.1)
+gh run list --limit 10                                     # ¿alguna verde?
+gh secret list                                             # ¿estan cargados los secrets?
+gh api repos/<owner>/<repo>/actions/runners --jq '.runners[]?'   # ¿ve algun runner?
+```
+
+**Cómo se ve un runner que nunca levanta el job:** corridas en `cancelled` con `startedAt` y
+`completedAt` separados por **exactamente 24 h** — el timeout con que GitHub mata un job que
+quedó en `Queued`. No hay ningún mensaje de error que lo explique.
+
+```bash
+gh run view <id> --json jobs \
+  --jq '.jobs[] | "\(.status)/\(.conclusion)  \(.startedAt) → \(.completedAt)"'
+```
+
+Las dos causas, ambas silenciosas: el repositorio **no está bajo la organización** dueña del
+runner (§5.1), o las **etiquetas del `runs-on` no coinciden** con las del runner real.
 
 ### 6.1 Inventario real del host
 

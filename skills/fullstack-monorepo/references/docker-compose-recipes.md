@@ -8,6 +8,32 @@
 
 ---
 
+## 0. Contrato de nombres (compose ↔ workflow ↔ `.env`)
+
+Estos nombres son **un contrato entre archivos**, no una preferencia de estilo: el compose los
+publica, el `.env` del servidor los define y el smoke test del
+[workflow de deploy](./ci-cd-deployment-pipeline.md) §2 los consume. Un sinónimo plausible
+—`BACKEND_HOST_PORT` en vez de `HOST_PORT_BACKEND`— no rompe nada de forma visible: cae al valor
+por defecto y el smoke test prueba un puerto que nadie está usando.
+
+| Variable | Qué es | Dónde se usa |
+| :--- | :--- | :--- |
+| `PROJECT_NAME` | Prefijo de contenedores, imágenes y volumen | ambos compose |
+| `HOST_PORT_BACKEND` | Puerto del **host** hacia la API | compose dev/prod + smoke test del workflow |
+| `HOST_PORT_FRONTEND` | Puerto del **host** hacia el front de desarrollo | compose dev |
+| `HOST_PORT_DB` | Puerto del **host** hacia Postgres — **sólo dev** | compose dev |
+| `PORT` | Puerto **interno** del contenedor de la API | ambos compose + la app |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credenciales; también las lee el entrypoint | ambos compose + `entrypoint.sh` |
+
+**Contexto de build según layout** (ver [`dockerfile-recipes.md`](./dockerfile-recipes.md)):
+
+| Layout | `context` | `dockerfile` |
+| :--- | :--- | :--- |
+| `apps/api` + `apps/web` (pnpm workspaces) | `.` | `./apps/api/Dockerfile` |
+| `backend/` + `frontend/` (npm, sin workspaces) | `./backend` | `Dockerfile` |
+
+---
+
 ## 1. `docker-compose.yml` (Development & Hybrid by Default)
 
 ```yaml
@@ -49,9 +75,17 @@ services:
     environment:
       NODE_ENV: development
       PORT: ${PORT:-3004}
+      # El entrypoint arma la espera de base con estas dos (database-lifecycle.md §1).
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-app_db}?schema=public
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-key}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8084}
+      # Obligatorio con volumenes montados desde Windows/WSL/macOS: sin polling, el watcher
+      # no ve los eventos de archivo del host y el hot-reload no dispara (SKILL.md §8).
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     volumes:
       - ./apps/api:/app/apps/api
       - ./packages:/app/packages
@@ -110,12 +144,15 @@ services:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: ${PROJECT_NAME:-app}-database
     restart: unless-stopped
-    ports:
-      - "${HOST_PORT_DB:-5432}:5432"
+    # SIN `ports:` a proposito. El backend llega por la red interna `app-net`; publicar 5432
+    # en un host compartido expone la base a todo lo que corra en la maquina y colisiona con
+    # el Postgres de cualquier otro proyecto. Para depurar puntualmente, atarlo al loopback y
+    # sacarlo despues:
+    #   ports: ["127.0.0.1:${HOST_PORT_DB:-5432}:5432"]
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -142,12 +179,19 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3004}
+      # El entrypoint necesita estas tres para esperar a la base y verificar con una consulta
+      # real antes de migrar (database-lifecycle.md §1).
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}?schema=public
-      JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: ${CORS_ORIGIN}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
     healthcheck:
-      # /health y wget son placeholders — ver §4.6
-      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/health || exit 1"]
+      # /health y wget son placeholders — ver §4.6. `127.0.0.1`, NO `localhost`: dentro del
+      # contenedor `localhost` resuelve a ::1 y una app que escucha en 0.0.0.0 (IPv4) da
+      # "connection refused" para siempre (§4.7).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -259,7 +303,7 @@ fallar por carrera, no por bug real.
 
 ```yaml
     healthcheck:
-      test: ["CMD-SHELL", "<wget/curl/lo que traiga la imagen> http://localhost:$$PORT/<ruta-de-health> || exit 1"]
+      test: ["CMD-SHELL", "<wget/curl/lo que traiga la imagen> http://127.0.0.1:$$PORT/<ruta-de-health> || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -270,3 +314,24 @@ Puerto, ruta y comando son placeholders: usar la variable de entorno, el endpoin
 HTTP reales de ese proyecto (alpine trae `wget`; otras imágenes pueden necesitar `curl` u otra
 alternativa). Usar `$$PORT` (doble `$`) para que lo resuelva el contenedor en runtime, no Compose
 al parsear el YAML.
+
+### 4.7 `127.0.0.1`, nunca `localhost`, dentro del contenedor
+
+Verificado en `node:22-alpine`: `getent hosts localhost` devuelve **`::1`**. Una aplicación que
+escucha en `0.0.0.0` está escuchando en **IPv4**, así que el healthcheck se conecta por IPv6 a un
+puerto donde no hay nadie y recibe `connection refused` — indefinidamente.
+
+```
+docker inspect <contenedor> --format '{{json .State.Health}}'
+→ "Output":"wget: can't connect to remote host: Connection refused"
+```
+
+Lo traicionero es que **la aplicación funciona perfecto**: `curl` desde el host contra el puerto
+publicado devuelve 200, mientras el contenedor queda `unhealthy` para siempre. Y como el deploy
+espera "todo healthy" (§4.6), el job falla siempre — por el healthcheck, no por la app.
+
+- En el `healthcheck` del compose y en cualquier chequeo **dentro** del contenedor: `127.0.0.1`.
+- En el smoke test del workflow, que corre **en el host** contra el puerto publicado, `localhost`
+  es correcto.
+- Alternativa si la app tiene que responder por las dos familias: escuchar en `::` con dual-stack.
+  Cambiar el chequeo es más barato y no toca el código.

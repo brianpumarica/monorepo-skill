@@ -16,59 +16,118 @@ Prisma, Alembic, Flyway o SQL a mano.
 | **El script de inicialización sólo corre con el volumen vacío** | Con un volumen ya existente no se ejecuta: los datos nuevos nunca llegan (ver §4) |
 | **Las variables de entorno se fijan al crear el contenedor** | `restart` no toma los cambios; hace falta recrear |
 | **El chequeo de readiness no garantiza que la base acepte consultas** | Durante la inicialización responde un servidor temporal: consultar ahí da resultados falsos |
+| **El binario de readiness tiene que existir DENTRO de la imagen** | `pg_isready` no viene en `node:*-alpine` ni en `python:*-slim`: sin `postgresql-client` el arranque agota los reintentos y culpa a la base de un paquete faltante |
+| **Las rutas del entrypoint se resuelven contra la carpeta de la app, no contra el `WORKDIR`** | En un monorepo (`WORKDIR /app`, app en `/app/apps/api`) ningún `if` matchea: migraciones y seed se saltean **en silencio** |
 
 ---
 
-## 1. Idempotent `apps/api/entrypoint.sh`
+## 1. Idempotent `entrypoint.sh`
+
+Vale igual para `apps/api/entrypoint.sh` (monorepo pnpm) y para `backend/entrypoint.sh` (layout
+npm): **se ancla solo**, sin editar rutas por proyecto.
 
 ```bash
 #!/bin/sh
 set -e
 
-echo "==> Checking database readiness..."
-MAX_TRIES=30
-COUNT=0
+# --- Anclaje de rutas -------------------------------------------------------------------
+# El WORKDIR de la imagen NO siempre es la carpeta de la app: en un monorepo la API vive en
+# /app/apps/api mientras el WORKDIR es /app. Si las rutas relativas se resuelven contra el
+# WORKDIR, ningun `if` de aca abajo matchea y las migraciones se saltean EN SILENCIO (§0).
+# Se ancla todo a la ubicacion real del script, pero el proceso final se ejecuta con el
+# WORKDIR original para no cambiarle el contexto al CMD.
+APP_DIR="${APP_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)}"
+echo "==> App directory: $APP_DIR"
 
-until pg_isready -h "${DB_HOST:-database}" -p "${DB_PORT:-5432}" -U "${POSTGRES_USER:-postgres}" 2>/dev/null || [ $COUNT -eq $MAX_TRIES ]; do
-  COUNT=$((COUNT + 1))
-  echo "    Database not ready yet ($COUNT/$MAX_TRIES). Retrying in 1s..."
-  sleep 1
-done
+DB_HOST="${DB_HOST:-database}"
+DB_PORT="${DB_PORT:-5432}"
+DB_USER="${POSTGRES_USER:-postgres}"
+DB_NAME="${POSTGRES_DB:-postgres}"
+MAX_TRIES="${DB_WAIT_TRIES:-30}"
 
-if [ $COUNT -eq $MAX_TRIES ]; then
-  echo "Error: Database timeout reached. Exiting."
+# --- Requisitos de la imagen ------------------------------------------------------------
+if ! command -v pg_isready >/dev/null 2>&1; then
+  echo "ERROR: falta pg_isready en la imagen."
+  echo "       Instalar postgresql-client en la etapa 'base' del Dockerfile"
+  echo "       (dockerfile-recipes.md 7.3). Abortando."
   exit 1
 fi
 
-echo "==> Running database migrations..."
-if [ -d "./prisma" ] || [ -f "./prisma/schema.prisma" ]; then
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm exec prisma migrate deploy
-  elif [ -x "./node_modules/.bin/prisma" ]; then
-    ./node_modules/.bin/prisma migrate deploy
-  else
-    npx --no-install prisma migrate deploy
+# --- Espera de base ---------------------------------------------------------------------
+# pg_isready tambien responde OK contra el servidor temporal de inicializacion (§0). Cuando
+# hay credenciales y psql disponible, se confirma con una consulta real antes de migrar.
+db_ready() {
+  pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" >/dev/null 2>&1 || return 1
+  if [ -n "${POSTGRES_PASSWORD:-}" ] && command -v psql >/dev/null 2>&1; then
+    PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" \
+      -d "$DB_NAME" -tAc 'SELECT 1' >/dev/null 2>&1 || return 1
   fi
-elif [ -f "./alembic.ini" ]; then
-  alembic upgrade head
+  return 0
+}
+
+echo "==> Waiting for database at ${DB_HOST}:${DB_PORT}/${DB_NAME}..."
+TRY=1
+until db_ready; do
+  if [ "$TRY" -ge "$MAX_TRIES" ]; then
+    echo "ERROR: la base no acepto consultas tras ${MAX_TRIES} intentos. Abortando."
+    exit 1
+  fi
+  echo "    not ready yet (${TRY}/${MAX_TRIES}). Retrying in 1s..."
+  TRY=$((TRY + 1))
+  sleep 1
+done
+echo "==> Database accepting queries."
+
+# --- Migraciones ------------------------------------------------------------------------
+# Sin "|| true" (§0): una migracion fallida aborta el arranque en lugar de dejar la app
+# sirviendo contra un schema desactualizado.
+if [ -f "$APP_DIR/prisma/schema.prisma" ]; then
+  echo "==> Running Prisma migrations..."
+  ( cd "$APP_DIR" && \
+    if [ -x ./node_modules/.bin/prisma ]; then ./node_modules/.bin/prisma migrate deploy
+    elif command -v pnpm >/dev/null 2>&1; then pnpm exec prisma migrate deploy
+    else npx --no-install prisma migrate deploy
+    fi )
+elif [ -f "$APP_DIR/alembic.ini" ]; then
+  echo "==> Running Alembic migrations..."
+  ( cd "$APP_DIR" && alembic upgrade head )
+else
+  echo "==> No migration tool detected in $APP_DIR (skipping)."
 fi
 
-echo "==> Running idempotent seed (if present)..."
-if [ -f "./dist/prisma/seed.js" ]; then
-  node dist/prisma/seed.js
-elif [ -f "./dist/seed.js" ]; then
-  node dist/seed.js
-elif [ -f "./prisma/seed.ts" ] && [ "$NODE_ENV" != "production" ]; then
-  if [ -x "./node_modules/.bin/tsx" ]; then
-    ./node_modules/.bin/tsx prisma/seed.ts
-  else
-    npx --no-install tsx prisma/seed.ts
-  fi
+# --- Seed idempotente -------------------------------------------------------------------
+# El entrypoint corre en CADA arranque, produccion incluida (§0): el seeder solo crea lo que
+# falta. Nunca borra ni sobrescribe.
+if [ -f "$APP_DIR/dist/prisma/seed.js" ]; then
+  echo "==> Running compiled seed (dist/prisma/seed.js)..."
+  ( cd "$APP_DIR" && node dist/prisma/seed.js )
+elif [ -f "$APP_DIR/dist/seed.js" ]; then
+  echo "==> Running compiled seed (dist/seed.js)..."
+  ( cd "$APP_DIR" && node dist/seed.js )
+elif [ -f "$APP_DIR/prisma/seed.ts" ] && [ "${NODE_ENV:-}" != "production" ]; then
+  echo "==> Running TypeScript seed (dev only)..."
+  ( cd "$APP_DIR" && \
+    if [ -x ./node_modules/.bin/tsx ]; then ./node_modules/.bin/tsx prisma/seed.ts
+    else npx --no-install tsx prisma/seed.ts
+    fi )
+else
+  echo "==> No seed script found (skipping)."
 fi
 
-echo "==> Starting main process..."
+echo "==> Starting main process: $*"
 exec "$@"
 ```
+
+### Por qué está escrito así
+
+| Detalle | Motivo |
+| :--- | :--- |
+| `APP_DIR` derivado de `$0` | Un único archivo sirve para monorepo pnpm y para layout npm sin editar rutas |
+| `( cd "$APP_DIR" && ... )` en subshell | El `cd` no se filtra al `exec "$@"` final: el CMD conserva el `WORKDIR` de la imagen |
+| `command -v pg_isready` antes del loop | Distingue "falta un paquete" de "la base está caída" — 30 s de reintentos no lo hacían |
+| `TRY -ge MAX_TRIES` **dentro** del loop | La versión con `[ $COUNT -eq $MAX_TRIES ]` después del `until` abortaba aunque la base hubiera respondido justo en el último intento |
+| `psql -tAc 'SELECT 1'` | Es lo único que descarta el servidor temporal de inicialización (§0) |
+| `node_modules/.bin` antes que `npx` | Binario local, sin red: `npx` sin `--no-install` descarga en cada arranque (§2.6) |
 
 ---
 
@@ -83,9 +142,11 @@ exec "$@"
 5. **Una sola fuente de datos**: el seeder no carga un volcado paralelo (`seed-data.json` y
    similares) que pueda divergir del estado real. Si hace falta poblar una instancia nueva, eso
    es trabajo del script de inicialización (§4), no del seeder.
-6. **La herramienta de migraciones va en las dependencias de runtime**, no en las de desarrollo,
-   si la imagen de producción poda devDependencies. Si no, el entrypoint la descarga en cada
-   arranque —y falla en silencio cuando no hay red.
+6. **La herramienta de migraciones va en `dependencies`, no en `devDependencies`.** Tanto
+   `pnpm --prod deploy` como `npm ci --omit=dev` podan las devDependencies, y `npm ci` además
+   **rearma `node_modules` de cero**: por eso el cliente de Prisma se genera *después* de la poda
+   (ver [`dockerfile-recipes.md`](./dockerfile-recipes.md) §2). Si el binario no queda en la
+   imagen, el entrypoint lo descarga en cada arranque —y falla en silencio cuando no hay red.
 
 ```typescript
 // apps/api/prisma/seed.ts
