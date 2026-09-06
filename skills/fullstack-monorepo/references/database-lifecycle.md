@@ -276,10 +276,18 @@ echo "--- INICIO DUMP ---"; docker exec <contenedor-db> pg_dump -U <usuario> -d 
 - **Los delimitadores no son decorativos:** marcan exactamente qué seleccionar, y al reconstruir
   hay que borrarlos junto con cualquier prompt que la terminal haya intercalado.
 
-Antes de copiar, dejar registrado el hash del original para poder verificar del otro lado:
+Antes de copiar, dejar registrado el hash del original para poder verificar del otro lado.
+
+> [!IMPORTANT]
+> **Hashear el volcado crudo no sirve: da distinto en cada corrida.** Desde PostgreSQL 16.10 /
+> 17.6, `pg_dump` emite un par de líneas `\restrict <token>` / `\unrestrict <token>` con un
+> **token aleatorio por ejecución**. Dos volcados de exactamente los mismos datos producen
+> hashes distintos, y el operador termina creyendo que el pegado se corrompió cuando está
+> perfecto. Hay que excluir esas dos líneas **de los dos lados**.
 
 ```bash
-docker exec <contenedor-db> pg_dump -U <usuario> -d <base> | sha256sum
+docker exec <contenedor-db> pg_dump -U <usuario> -d <base> \
+  | grep -vE '^\\(restrict|unrestrict)' | sha256sum
 ```
 
 ### 7.2 En la máquina local — reconstruir y verificar
@@ -288,8 +296,20 @@ Pegar el bloque (sin los delimitadores) en `dump.b64` y decodificar:
 
 ```bash
 base64 -d dump.b64 | gunzip > dump.sql
-sha256sum dump.sql          # debe coincidir con el hash del servidor
-grep -c '' dump.sql         # sanity check: cantidad de lineas
+grep -vE '^\\(restrict|unrestrict)' dump.sql | sha256sum   # debe coincidir con el del servidor
+grep -c '' dump.sql                                        # sanity check: cantidad de lineas
+```
+
+**No suprimir los errores de `gunzip`.** Un `2>/dev/null` de más convierte un volcado truncado
+en un archivo a medias que parece válido: el `.sql` abre, tiene SQL adentro, y le faltan filas.
+
+Y además del hash, contar lo que importa —es la verificación que un operador entiende de un
+vistazo, y la que detecta un volcado de la base equivocada:
+
+```bash
+for t in products categories users _prisma_migrations; do
+  printf '%-22s %s\n' "$t" "$(sed -n "/^COPY public.$t /,/^\\\\\.$/p" dump.sql | grep -vc '^COPY\|^\\\.$')"
+done
 ```
 
 > En Windows, correr esto desde Git Bash. La alternativa en PowerShell es
