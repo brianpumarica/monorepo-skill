@@ -1,6 +1,6 @@
 ---
 name: fullstack-monorepo
-description: End-to-end framework-agnostic standard for auditing, scaffolding, refactoring, and maintaining production-grade Full-Stack Monorepos. Supports three official interaction modes (/analiza for stack-aware audit & gap analysis, /ejecuta for exhaustive implementation & legacy eradication, /inspecciona for read-only inspection of the live deployment). Covers conditional stack detection (Node/Python/Vite/Next/Docker), zero-flag dev-first Compose, bulletproof hot-reloading across host mounts, non-root multi-stage containers, SPA routing with Nginx/Vercel, dual CI/CD (Vercel CLI + Pi Runner), organization-level self-hosted runners, per-repository server env stores, post-deploy verification, and gh CLI operations.
+description: Estándar y runbook para monorepos full-stack en Docker — auditar, scaffoldear y refactorizar el repo (compose dev/prod, Dockerfiles multi-stage non-root, entrypoint con espera de base, hot-reload en contenedores, SPA routing) y desplegarlo con GitHub Actions a Vercel más un runner self-hosted. Usar cuando el pedido toque docker-compose, Dockerfile, entrypoint, deploy.yml, o el estado real de lo que está corriendo en el servidor. Tres modos - analiza (auditoría y plan), ejecuta (implementación y eliminación de legacy), inspecciona (diagnóstico de sólo lectura del despliegue).
 ---
 
 # Fullstack Monorepo Standard & Scaffold Runbook
@@ -9,44 +9,46 @@ Este estándar proporciona un marco agnóstico, condicional y de grado de produc
 
 ---
 
-## 1. Modos de Invocación y Comandos Oficiales
+## 1. Modos de Invocación
 
-Cualquier agente IA que ejecute esta skill DEBE responder de acuerdo al subcomando invocado:
+`analiza`, `ejecuta` e `inspecciona` son **modos de esta skill**, no comandos registrados en el
+host. Se piden como argumento al invocarla (`/fullstack-monorepo analiza`) o en lenguaje natural
+("auditá el monorepo con el estándar"). El agente DEBE responder según el modo pedido:
 
-| Comando / Sintaxis | Modo | Comportamiento Obligatorio del Agente |
+> Si querés que aparezcan como slash commands propios en Claude Code, creá
+> `.claude/commands/analiza.md` (y sus pares) con una línea que invoque esta skill en ese modo.
+> Sin eso, `/analiza` suelto no resuelve a nada y `@fullstack-monorepo` no existe como sintaxis.
+
+| Modo | Fase | Comportamiento Obligatorio del Agente |
 | :--- | :--- | :--- |
-| **`/fullstack-monorepo /analiza`**<br>*(o `@fullstack-monorepo /analiza`)* | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>4. Presenta el plan de acción listo para aprobación. |
-| **`/fullstack-monorepo /ejecuta`**<br>*(o `@fullstack-monorepo /ejecuta`)* | **Fase 2: Implementación & Erradicación** | 1. Aplica obligatoriamente el **Checklist de 6 Fases** para las tecnologías detectadas sin omitir entregables.<br>2. **Elimina proactivamente archivos legacy/anti-patrones**.<br>3. Ejecuta validaciones automáticas (`docker compose config`, lint, build).<br>4. Entrega el reporte de cambios completo. |
-| **`/fullstack-monorepo /inspecciona`**<br>*(o `@fullstack-monorepo /inspecciona`)* | **Fase 0: Inspección del Entorno Desplegado** *(solo lectura)* | 1. Emite el **Catálogo de Diagnóstico** —comandos exclusivamente de lectura— para ejecutar en el servidor (ver [referencia de CI/CD §6](./references/ci-cd-deployment-pipeline.md)).<br>2. Interpreta la salida y reporta el **estado real**: inventario completo de contenedores del host, salud, recursos, versión desplegada y desvíos del entorno.<br>3. **No modifica absolutamente nada.** Lo que haya para corregir se lista y se espera aprobación explícita. |
-| **`/fullstack-monorepo`** *(sin subcomando)* | **Modo Directo (All-in-One)** | Ejecuta el análisis y, si no existen dudas humanas ambiguas, **procede directamente a la ejecución exhaustiva** sin requerir confirmación intermedia. |
+| **`analiza`** | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>4. Presenta el plan de acción listo para aprobación. |
+| **`ejecuta`** | **Fase 2: Implementación & Erradicación** | 1. Aplica obligatoriamente el **Checklist de 6 Fases** para las tecnologías detectadas sin omitir entregables.<br>2. **Elimina proactivamente archivos legacy/anti-patrones**.<br>3. Ejecuta validaciones automáticas (`docker compose config`, lint, build).<br>4. Entrega el reporte de cambios completo. |
+| **`inspecciona`** | **Fase 0: Inspección del Entorno Desplegado** *(solo lectura)* | 1. **Primero, el canal: ¿el pipeline llegó a correr alguna vez?** Dueño del repo vs. organización dueña del runner, etiquetas, historial de corridas y secrets cargados (ver [CI/CD §5.1](./references/ci-cd-deployment-pipeline.md)). Si nunca hubo un deploy exitoso, **no hay nada desplegado que inspeccionar** y el resto del catálogo sobra.<br>2. Recién entonces emite el **Catálogo de Diagnóstico** —comandos exclusivamente de lectura— para ejecutar en el servidor ([CI/CD §6](./references/ci-cd-deployment-pipeline.md)).<br>3. Interpreta la salida y reporta el **estado real**: inventario completo de contenedores del host, salud, recursos, versión desplegada y desvíos del entorno.<br>4. **No modifica absolutamente nada.** Lo que haya para corregir se lista y se espera aprobación explícita. |
+| **(sin modo)** | **Modo Directo (All-in-One)** | Ejecuta el análisis y, si no existen dudas humanas ambiguas, **procede directamente a la ejecución exhaustiva** sin requerir confirmación intermedia. |
 
 ### Flujo recomendado
 
 ```
-/inspecciona   →   /analiza   →   /ejecuta   →   /inspecciona
- (el servidor)      (el repo)      (el repo)       (verificar)
+inspecciona   →   analiza   →   ejecuta   →   inspecciona
+(el servidor)     (el repo)     (el repo)      (verificar)
 ```
 
-1. **`/inspecciona` antes de tocar el repo** — sólo si el proyecto se despliega en un servidor que
+1. **`inspecciona` antes de tocar el repo** — sólo si el proyecto se despliega en un servidor que
    ya hospeda otros. Devuelve puertos ocupados, disco disponible y contenedores vecinos: sin eso,
    los puertos se eligen a ciegas y la colisión aparece recién en el primer deploy.
-2. **`/analiza`** — auditoría del repositorio y plan de acción.
-3. **`/ejecuta`** — implementación del plan.
-4. **`/inspecciona` después del primer deploy** — confirma que lo que corre es lo que se cree que
+2. **`analiza`** — auditoría del repositorio y plan de acción.
+3. **`ejecuta`** — implementación del plan.
+4. **`inspecciona` después del primer deploy** — confirma que lo que corre es lo que se cree que
    corre. Complementa la sonda de versión: el job en verde prueba que el pipeline corrió; esto
    prueba que el código llegó.
 
-`/analiza` y `/ejecuta` miran el **repositorio** y son las dos mitades del mismo trabajo.
-`/inspecciona` mira el **servidor**: es otro eje, y por eso va antes y después, nunca en el medio.
-El modo sin subcomando equivale a `/analiza` + `/ejecuta`, y **no** incluye inspección.
+`analiza` y `ejecuta` miran el **repositorio** y son las dos mitades del mismo trabajo.
+`inspecciona` mira el **servidor**: es otro eje, y por eso va antes y después, nunca en el medio.
+El modo directo equivale a `analiza` + `ejecuta`, y **no** incluye inspección.
 
-> **Dónde corre `/inspecciona`.** En la máquina de desarrollo, como cualquier otro modo. El
-> servidor no tiene agente ni herramientas de IA: es sólo un host de contenedores. El agente
-> trabaja por dos canales:
-> - **Directo desde la máquina local:** `gh` para el estado del runner, las corridas y sus logs; y
->   `curl` contra los dominios públicos expuestos por el túnel.
-> - **Copiar y pegar:** todo lo que sea `docker` en el servidor — el agente redacta el comando de
->   una línea, el operador lo pega en la terminal web y devuelve la salida.
+> **Dónde corre `inspecciona`:** en la máquina de desarrollo, como cualquier otro modo — el
+> servidor no tiene agente. Los dos canales de trabajo están en
+> [Deployment Environment Profile §3](./references/deployment-environment-profile.md).
 
 ---
 
@@ -57,10 +59,12 @@ La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análi
 | Tecnología Detectada | Indicador en el Proyecto | Directivas Obligatorias Activadas |
 | :--- | :--- | :--- |
 | **Docker / Compose** | Hay Dockerfiles o `docker-compose*.yml` | • `.gitattributes` con `eol=lf` para scripts Linux en Windows.<br>• `.dockerignore` raíz centralizado.<br>• `docker-compose.yml` (dev-first sin flags) y `docker-compose.prod.yml`. |
-| **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• BuildKit cache mounts (`/root/.npm`).<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
-| **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` y `USER appuser` non-root.<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir /app`. |
+| **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• **`postgresql-client` en la etapa `base`** — sin él no hay `pg_isready` y el arranque muere (receta §7.3).<br>• BuildKit cache mount: `/root/.npm` con npm, `/pnpm/store` con pnpm.<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
+| **Gestor de paquetes** | `package-lock.json` vs `pnpm-lock.yaml` | • **El lockfile manda**: npm → recetas §2/§5; pnpm+workspaces → §1/§4. No migrar de gestor sin pedido explícito ([`workspace-tooling.md`](./references/workspace-tooling.md)).<br>• El `context` del build cambia con el layout (recetas §0). |
+| **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` y `USER appuser` non-root.<br>• **`postgresql-client`** en la etapa `base` + `ENTRYPOINT` explícito (no sólo `CMD`).<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir <carpeta de la app>`. |
 | **Frontend SPA (Vite / React / Vue)** | `vite.config.ts` o index.html cliente | • `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y Gzip.<br>• `frontend/vercel.json` con rewrites para SPA.<br>• Servidor final ultra-ligero `nginx:alpine` (<10MB RAM). |
 | **Frontend SSR (Next.js)** | `next.config.js/ts` | • `output: 'standalone'` en producción.<br>• Volumen anónimo `/app/.next` y `WATCHPACK_POLLING=true`.<br>• Inyección de variables `NEXT_PUBLIC_*` en build-time. |
+| **Frontend Expo Web** | `app.json` / `eas.json` / dependencia `expo` | • **No es Vite**: dev es `expo start --web`, build es `expo export -p web` — que igual deja `dist/`, así que la receta SPA sirve para la salida.<br>• Variables `EXPO_PUBLIC_*` en build-time (mismo mecanismo que `NEXT_PUBLIC_*`).<br>• Volumen anónimo `/app/.expo`.<br>• Si además compila a móvil (`android/`, `ios/`), **la web es un target más**: no migrar el proyecto a Vite para "cumplir el estándar". |
 | **PostgreSQL / Base de Datos** | SQL scripts, Prisma o Alembic | • Healthchecks activos con `pg_isready`.<br>• Volumen de datos nombrado persistente.<br>• Seeders seguros (variables de entorno, sin contraseñas hardcodeadas). |
 
 ---
@@ -70,13 +74,13 @@ La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análi
 Para maximizar la autonomía y la velocidad, el agente DEBE aplicar este filtro estricto:
 
 * 🚫 **PROHIBIDO PREGUNTAR (Decisiones pre-aprobadas por el estándar):**
-  - "¿Quieres que consolide `docker-compose.dev.yml` en `docker-compose.yml`?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Deseas agregar `nginx.conf` o `vercel.json` para las rutas SPA?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Quieres usar Node 22 en lugar de Node 20?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Quieres crear `.gitattributes` para evitar CRLF en Windows?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Deseas ejecutar el backend como non-root?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Agrego rotación de logs al compose de producción?" $\rightarrow$ **SÍ, la skill lo exige.**
-  - "¿Uso `gh` en vez de la web para el PR y para seguir el deploy?" $\rightarrow$ **SÍ, la skill lo exige.**
+  - "¿Quieres que consolide `docker-compose.dev.yml` en `docker-compose.yml`?" → **SÍ, la skill lo exige.**
+  - "¿Deseas agregar `nginx.conf` o `vercel.json` para las rutas SPA?" → **SÍ, la skill lo exige.**
+  - "¿Quieres usar Node 22 en lugar de Node 20?" → **SÍ, la skill lo exige.**
+  - "¿Quieres crear `.gitattributes` para evitar CRLF en Windows?" → **SÍ, la skill lo exige.**
+  - "¿Deseas ejecutar el backend como non-root?" → **SÍ, la skill lo exige.**
+  - "¿Agrego rotación de logs al compose de producción?" → **SÍ, la skill lo exige.**
+  - "¿Uso `gh` en vez de la web para el PR y para seguir el deploy?" → **SÍ, la skill lo exige.**
 
 * ✅ **ÚNICAS PREGUNTAS PERMITIDAS (Dilemas arquitectónicos reales):**
   - Existencia de múltiples servicios que colisionan en responsabilidades.
@@ -88,20 +92,24 @@ Para maximizar la autonomía y la velocidad, el agente DEBE aplicar este filtro 
 
 ## 4. Entorno de Despliegue del Operador (*Deployment Environment Profile*)
 
-Hechos del entorno real donde se despliega. **Los campos son fijos; los valores se reemplazan
-por operador o proyecto.** El agente los da por ciertos y no vuelve a preguntarlos.
+Hechos del entorno real donde se despliega: alcance y etiquetas del runner, canal de acceso al
+servidor, host compartido o dedicado, exposición pública, almacén de `.env` y ruta de los
+proyectos. El agente los da por ciertos y **no vuelve a preguntarlos**.
 
-| Campo | Valor |
+**La plantilla vacía está en
+[`references/deployment-environment-profile.md`](./references/deployment-environment-profile.md).**
+Se completa una vez por operador y se guarda en el `AGENTS.md` del proyecto —repositorio
+privado—, nunca acá: esta skill es pública, y el dominio de la terminal web, el nombre del runner
+y la ruta del almacén de secretos no son secretos pero sí son el mapa de la infra.
+
+Lo único que el estándar fija sin importar el operador:
+
+| Regla | Por qué |
 | :--- | :--- |
-| **Alcance del runner** | Registrado a nivel **organización** (`brian-raspberry-5`), **no** en la cuenta personal. Un repositorio creado en la cuenta personal **no ve el runner** y su job queda encolado para siempre: hay que transferirlo a la organización antes del primer deploy. |
-| **Etiquetas del runner** | `[self-hosted, linux, rpi5]` — servicio `actions.runner.<org>.<runner>.service` |
-| **Canal de acceso al servidor** | Terminal web (ttyd) en `https://terminal.brianpumarica.online/` con Basic Auth. **No hay acceso por clave SSH, y es una decisión deliberada.** El agente redacta comandos de una sola línea; el operador los pega y devuelve la salida. **No hay transferencia de archivos**: para traer un volcado de la base, ver la referencia de base de datos §7. |
-| **Verificación desde el repo** | `gh` CLI instalado y autenticado. Es el canal preferido para crear PRs, comprobar el runner y seguir los deploys — antes que la web y antes que la terminal del servidor. |
-| **Host compartido** | Sí: el servidor hospeda varios proyectos a la vez. **Nunca** `docker system prune`, `docker container prune`, ni `docker compose down` sin `-f docker-compose.prod.yml` desde el directorio del proyecto. Antes de asignar los puertos de un proyecto nuevo, ver los que ya están tomados: `docker ps --format '{{.Names}}\t{{.Ports}}'`. |
-| **Exposición pública** | Cloudflare Tunnel con el patrón `<proyecto>.brianpumarica.online`. Sin puertos abiertos en el router. |
-| **Entorno de producción** | `/home/github-runner/env-backups/<nombre-del-repo>/.env` — permisos `600`, dueño `github-runner`. **Una carpeta por repositorio:** un archivo único se lo queda el primer proyecto y rompe a todos los demás. |
-| **Ruta de los proyectos** | `/home/<usuario>/Documents/<nombre-del-repo>` |
-| **Máquina de desarrollo** | Windows → los saltos de línea CRLF son un riesgo real y no teórico. |
+| **Un `.env` por repositorio** en el almacén del servidor | Un archivo único se lo queda el primer proyecto y rompe a todos los demás (ci-cd §5.2) |
+| **El repositorio tiene que estar bajo la organización dueña del runner** | Si el runner es de organización y el repo es personal, el job queda `Queued` para siempre y sin mensaje de error (ci-cd §5.1) |
+| **`gh` es el canal de verificación preferido** | Antes que la web y antes que la terminal del servidor |
+| **En host compartido, ningún comando `prune` ni `down` global** | Se lleva puestos los contenedores de los vecinos (perfil §2) |
 
 ---
 
@@ -124,6 +132,13 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Workflow de deploy que termina en `docker compose ps` | **AGREGAR verificación post-deploy** (contenedores `healthy` + smoke test al endpoint de salud) y hacer fallar el job si no pasa. |
 | Job de CI que no despliega nada pero corre en cada push | **ELIMINARLO.** |
 | Compose de producción sin rotación de logs | **AGREGAR `logging` con `max-size` / `max-file`** en todos los servicios: en un host compartido, un proyecto sin rotación llena el disco de todos. |
+| **Imagen con `entrypoint.sh` que llama a `pg_isready` sin `postgresql-client` instalado** | **AGREGAR `postgresql-client` a la etapa `base`.** El binario no viene en `node:*-alpine` ni en `python:*-slim`: el arranque agota los reintentos y el log culpa a la base de un paquete faltante. |
+| **Entrypoint con rutas relativas al `WORKDIR`** en un monorepo | **ANCLAR a la ubicación del script** (`APP_DIR` derivado de la ruta del propio script). Con `WORKDIR /app` y la app en `/app/apps/api`, ningún `if` matchea: migraciones y seed se saltean **en silencio**. |
+| Cualquier `\|\| true` en el build (`cp`, `tsc`, `prisma generate`) | **QUITARLO.** Convierte un build roto en una imagen incompleta que sólo se descubre como crash-loop, semanas después. |
+| Compose de **producción** publicando el puerto de Postgres al host | **QUITAR el `ports:` de la base.** El backend llega por la red interna; publicarlo expone la base a todo el host y colisiona con el Postgres de los vecinos. |
+| Recetas pnpm/workspaces aplicadas a un repo con `package-lock.json` | **USAR LA RECETA npm** (`dockerfile-recipes.md` §2/§5). Migrar de gestor de paquetes sin pedido explícito es ruido, no cumplimiento. |
+| Nombres de variables sinónimos entre compose y workflow (`BACKEND_HOST_PORT` vs `HOST_PORT_BACKEND`) | **RESPETAR el contrato de nombres** (`docker-compose-recipes.md` §0). El sinónimo no rompe: cae al default y el smoke test prueba un puerto que nadie usa. |
+| `healthcheck` apuntando a `localhost` **dentro** del contenedor | **USAR `127.0.0.1`.** `localhost` resuelve a `::1` y la app escucha en IPv4: el contenedor queda `unhealthy` para siempre con la app perfectamente sana, y el deploy falla en cada corrida (`docker-compose-recipes.md` §4.7). |
 
 ---
 
@@ -164,6 +179,28 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 └── README.md                    # Guía de inicio rápido para desarrolladores
 ```
 
+### Variante npm sin workspaces (igual de válida)
+
+Cuando el repo tiene `package-lock.json` y las apps en la raíz, **no se migra el layout**: cambia
+el `context` del build y la receta de Dockerfile, nada más.
+
+```
+<project-root>/
+├── backend/                     # package.json + package-lock.json propios
+│   ├── Dockerfile               # receta npm (dockerfile-recipes.md §2), context: ./backend
+│   ├── entrypoint.sh
+│   └── .dockerignore
+├── frontend/                    # package.json + package-lock.json propios
+│   ├── Dockerfile               # receta npm (§5), context: ./frontend
+│   ├── nginx.conf
+│   ├── vercel.json
+│   └── .dockerignore
+└── (idéntico al de arriba de acá para abajo: docker/, docs/, compose, .env.example, ...)
+```
+
+El `.dockerignore` va **junto a cada contexto de build**: uno en la raíz sirve para `context: .`,
+pero es invisible para `context: ./backend`.
+
 ---
 
 ## 7. Checklist de Implementación Mandatoria (6 Fases)
@@ -182,9 +219,12 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Generar `docker-compose.prod.yml` con imágenes de producción, healthchecks y reinicio `unless-stopped`.
 
 ### Fase 3: Backend Hardening
-- [ ] Crear `backend/entrypoint.sh` ejecutable con `pg_isready` y `exec "$@"`.
-- [ ] Configurar `backend/Dockerfile` multi-stage (Node 22 / Python 3.12, `USER node` / `USER appuser`, BuildKit cache).
-- [ ] Configurar hot-reload con polling (`CHOKIDAR_USEPOLLING=true` en Docker).
+- [ ] Elegir la receta por **lockfile y layout** (`dockerfile-recipes.md` §0): npm → §2/§5, pnpm+workspaces → §1/§4.
+- [ ] Crear `entrypoint.sh` ejecutable, anclado con `APP_DIR` y con `exec "$@"` (`database-lifecycle.md` §1).
+- [ ] **Instalar `postgresql-client` en la etapa `base` del Dockerfile** — es lo que provee `pg_isready`; sin él el contenedor no arranca.
+- [ ] Configurar `Dockerfile` multi-stage (Node 22 / Python 3.12, `USER node` / `USER appuser`, BuildKit cache) — con `ENTRYPOINT` explícito **también en Python**.
+- [ ] Verificar la imagen construida antes de confiar en ella (`dockerfile-recipes.md` §7.2).
+- [ ] Configurar hot-reload con polling (`CHOKIDAR_USEPOLLING=true` en el servicio de backend del compose, no sólo documentado).
 
 ### Fase 4: Frontend Production Readiness
 - [ ] Crear `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y compresión gzip.
@@ -218,22 +258,29 @@ Para evitar fallos de detección de archivos en montajes de volumen host (Window
 | **Next.js** | `docker-compose.yml` | `environment: [WATCHPACK_POLLING=true]` + volumen anónimo `/app/.next` |
 | **Express / TS** | `docker-compose.yml` | `environment: [CHOKIDAR_USEPOLLING=true]` + `"dev": "tsx watch src/index.ts"` |
 | **NestJS / TS** | `nodemon.json` | `{"watch": ["src"], "ext": "ts", "legacyWatch": true, "exec": "nest start"}` |
-| **FastAPI / Python** | `docker-compose.yml` | `uvicorn main:app --host 0.0.0.0 --reload --reload-dir /app` |
+| **Expo Web** | `docker-compose.yml` | `environment: [CHOKIDAR_USEPOLLING=true]` + volumen anónimo `/app/.expo` + `expo start --web --host lan` |
+| **FastAPI / Python** | `docker-compose.yml` | `uvicorn main:app --host 0.0.0.0 --reload --reload-dir <carpeta de la app>` |
 
 ---
 
 ## 9. Referencias Detalladas y Companion Skills
 
 Para plantillas de código listas para usar:
-- [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `/inspecciona` (§6), la operación con `gh` (§7) y la sonda de versión (§8)
-- [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md)
-- [Docker Compose Recipes](./references/docker-compose-recipes.md)
-- [Dockerfile Recipes](./references/dockerfile-recipes.md)
+- [Dockerfile Recipes](./references/dockerfile-recipes.md) — **§0 elige la receta por lockfile y layout** (npm y pnpm), §7 trae las trampas de build verificadas
+- [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
+- [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
+- [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7) y la sonda de versión (§8)
+- [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido
+- [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
 - [AGENTS.md Standard Template](./references/agents-md-template.md)
-- [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — incluye las **reglas innegociables del arranque** (§0) y cómo **traer un volcado desde un servidor sin SSH** (§7)
 
 ### Companion Skills Coordinadas:
 - [`cloudflare-tunnel`](../cloudflare-tunnel/SKILL.md): Exposición segura con Zero Trust y SSL sin abrir puertos de router.
 - [`vercel-monorepo-deploy`](../vercel-monorepo-deploy/SKILL.md): Despliegue de frontend monorrepo con Vercel CLI y `turbo-ignore`.
 - [`docker-hardening`](../docker-hardening/SKILL.md): Seguridad de contenedores (`USER node`, `cap_drop: [ALL]`, healthchecks).
+- [`turborepo-orchestration`](../turborepo-orchestration/SKILL.md): Pipelines de Turbo, filtros y remote caching.
 - [`prisma-database`](../prisma-database/SKILL.md) / [`fastapi-backend`](../fastapi-backend/SKILL.md) / [`nestjs-backend`](../nestjs-backend/SKILL.md): Especializaciones por tecnología.
+
+> Estos enlaces resuelven dentro de este repositorio. Si instalaste **sólo** `fullstack-monorepo`
+> (`npx skills add <repo> --skill fullstack-monorepo`), las companion no están en tu máquina y los
+> enlaces no abren nada: instalá las que necesites o ignorá la sección.
