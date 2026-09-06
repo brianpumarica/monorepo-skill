@@ -60,6 +60,26 @@ skillFolders.forEach((skillName) => {
     totalErrors++;
   }
 
+  // Validate positional-argument placeholders.
+  //
+  // El runner de skills sustituye $0, $1, ... por los argumentos con que se invoca la skill.
+  // Un `$0` escrito literalmente en SKILL.md (por ejemplo explicando `dirname "$0"` de un
+  // script) desaparece del texto que ve el modelo y queda reemplazado por el argumento —
+  // silenciosamente, y solo cuando alguien invoca la skill con argumentos. En las referencias
+  // no pasa: esas se leen como archivos.
+  //
+  // `$@` y `$*` no se sustituyen: se pueden usar sin problema.
+  const positionalMatches = [...content.matchAll(/\$\{?([0-9])\}?/g)];
+  if (positionalMatches.length > 0) {
+    const found = [...new Set(positionalMatches.map((m) => `$${m[1]}`))].join(', ');
+    console.error(
+      `   ❌ ${skillName}/SKILL.md contiene placeholders posicionales (${found}). ` +
+        `El runner los reemplaza por los argumentos de invocacion. ` +
+        `Reformular en prosa, o mover el ejemplo a un archivo de references/.`,
+    );
+    totalErrors++;
+  }
+
   // Validate relative markdown links
   const linkMatches = [...content.matchAll(/\[([^\]]+)\]\(((\.\.?\/[^)]+))\)/g)];
   for (const match of linkMatches) {
