@@ -23,12 +23,12 @@ Copiar esta tabla al `AGENTS.md` del proyecto y completarla una sola vez.
 | **Alcance del runner** | `<organización \| cuenta personal>` | Si es organización, un repo creado en la cuenta personal **no ve el runner**: el job queda `Queued` para siempre. Transferirlo antes del primer deploy (ci-cd §5.1) |
 | **Nombre del runner** | `<nombre-del-runner>` | Servicio `actions.runner.<org>.<runner>.service` |
 | **Etiquetas del runner** | `[self-hosted, linux, <arch>]` | Tienen que coincidir con el `runs-on` del workflow |
-| **Canal de acceso al servidor** | `<SSH \| terminal web \| ninguno>` | Si es terminal web de copiar/pegar: no hay transferencia de archivos; para traer un volcado, `database-lifecycle.md` §7 |
+| **Canal de acceso al servidor** | `<SSH \| terminal web \| ninguno>` | Si es terminal web de copiar/pegar: no hay transferencia de archivos; para traer un volcado, `database-lifecycle.md` §7. Si la terminal web corre en el mismo túnel de Cloudflare, reiniciar el servicio corta momentáneamente el WebSocket ("Press enter to reconnect"): presionar Enter tras 2 segundos para reconectar. |
 | **Verificación desde el repo** | `gh` CLI autenticado | Canal preferido para PRs, estado del runner y seguimiento de deploys — antes que la web y antes que la terminal del servidor |
 | **Host compartido** | `<sí \| no>` | Si es sí, aplican las prohibiciones de §2 |
-| **Exposición pública** | `<Cloudflare Tunnel \| reverse proxy \| puertos abiertos>` | Patrón de dominios: `<proyecto>.<dominio>` |
+| **Exposición pública** | `<Cloudflare Tunnel \| reverse proxy \| puertos abiertos>` | Patrón de dominios: `<proyecto>.<dominio>` y `api-<proyecto>.<dominio>`. **Regla Cloudflare:** usar SIEMPRE guion (`api-<proyecto>`), nunca dos puntos (`api.<proyecto>`), ya que Universal SSL gratuito solo cubre comodines de un solo nivel (`*.<dominio>`); dos puntos causan fallo de handshake TLS (`SEC_E_ILLEGAL_MESSAGE`). |
 | **Almacén de entorno** | `<ruta>/<nombre-del-repo>/.env` | Permisos `600`, dueño = usuario del runner. **Una carpeta por repositorio** (ci-cd §5.2) |
-| **Ruta de los proyectos** | `<ruta-base>/<nombre-del-repo>` | |
+| **Ruta de los proyectos** | `<actions-runner/_work/<repo>/<repo>>` | El runner autogestiona el workspace. **No clonar manualmente** en `~/Documents` si el proyecto corre mediante el runner: duplica código y gasta espacio en disco. |
 | **Máquina de desarrollo** | `<Windows \| macOS \| Linux>` | En Windows, CRLF es un riesgo real y no teórico: `.gitattributes` obligatorio |
 
 ---

@@ -188,6 +188,8 @@ docker compose -f docker-compose.prod.yml exec tunnel ping -c 2 backend
 ### Common Issues:
 - **Error 502 Bad Gateway**: Ensure `backend` is running and listening on `0.0.0.0:3004` (not `127.0.0.1:3004`).
 - **CORS Blocked**: Ensure the backend includes the frontend domain in `CORS_ALLOWED_ORIGINS` and Cloudflare SSL mode is set to **Full** or **Full (Strict)**.
+- **SSL Handshake Failed / `SEC_E_ILLEGAL_MESSAGE`**: Ocurre al usar subdominios anidados con dos puntos (ej. `api.proyecto.dominio.com`). El certificado gratuito Universal SSL de Cloudflare solo cubre `*.dominio.com` (un solo nivel de comodín). **Usar siempre guion**: `api-proyecto.dominio.com`, nunca dos puntos.
+- **Terminal Web se desconecta al reiniciar**: Si la terminal web corre en el mismo túnel (`terminal.dominio.com`), `sudo systemctl restart cloudflared` corta el WebSocket momentáneamente ("Press enter to reconnect"): basta con presionar Enter tras 2 segundos para reconectar.
 
 ---
 

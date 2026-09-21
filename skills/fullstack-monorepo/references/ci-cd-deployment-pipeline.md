@@ -161,7 +161,8 @@ jobs:
 | `VERCEL_TOKEN` | Vercel Personal Access Token | Vercel Dashboard > *Account Settings > Tokens* |
 | `VERCEL_PROJECT_ID` | Specific Project ID | Vercel Project > *Settings > General* |
 | `VERCEL_ORG_ID` | Team / Personal Account ID | Vercel Project > *Settings > General* (or User Settings) |
-| `NEXT_PUBLIC_API_URL` | Public backend URL | e.g. `https://api.tudominio.com` |
+| `NEXT_PUBLIC_API_URL` / `VITE_API_URL` | Public backend URL | e.g. `https://api-proyecto.tudominio.com` *(usar guion, no punto)* |
+| `SITE_URL` | Frontend canonical URL | e.g. `https://proyecto.vercel.app` (requerido si prerenderiza Open Graph) |
 
 > [!IMPORTANT]
 > `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez y se
@@ -171,6 +172,74 @@ jobs:
 > falla el build con mensajes que parecen no tener relación). Revisar también que **Root
 > Directory** y **Framework Preset** (dos campos separados en Vercel) apunten al subdirectorio y
 > stack correctos, y confirmar la URL pública real con `curl`/`nslookup` en vez de asumirla.
+
+### 3.1 Runbook de Onboarding para un Proyecto Nuevo (Paso a Paso)
+
+Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack nuevo evitando el paywall de organizaciones de Vercel y duplicación de disco en la Raspberry Pi:
+
+#### Fase A: Lado Máquina de Desarrollo (PC Local)
+1. **Crear y vincular el proyecto en Vercel gratis con Vercel CLI**:
+   Desde la raíz del repositorio local en Windows/Mac:
+   ```bash
+   npx vercel link
+   ```
+   Responder a las preguntas interactivas:
+   - *Which scope?* $\rightarrow$ Tu cuenta personal (Hobby)
+   - *Link to existing project?* $\rightarrow$ `no` (o `Create a new project`)
+   - *Project name?* $\rightarrow$ `<nombre-del-proyecto>`
+   - *In which directory is your code located?* $\rightarrow$ `./frontend` (o `./apps/web`)
+   - *Want to modify these settings?* $\rightarrow$ `no`
+   *(Vercel puede emitir un aviso 409 indicando que el repo pertenece a una organización, pero el proyecto queda creado y vinculado igualmente en tu cuenta Hobby)*.
+2. **Obtener IDs del proyecto**:
+   Vercel generará `.vercel/project.json`. Leer `projectId` y `orgId`:
+   ```bash
+   cat .vercel/project.json
+   ```
+3. **Generar Token de Vercel**:
+   Crear un token de acceso personal en [vercel.com/account/tokens](https://vercel.com/account/tokens).
+4. **Cargar los Secrets en GitHub con `gh` CLI**:
+   ```bash
+   echo "<PROJECT_ID>" | gh secret set VERCEL_PROJECT_ID
+   echo "<ORG_ID>" | gh secret set VERCEL_ORG_ID
+   echo "<TOKEN>" | gh secret set VERCEL_TOKEN
+   echo "https://api-<proyecto>.<dominio>" | gh secret set VITE_API_URL
+   echo "https://<proyecto>.vercel.app" | gh secret set SITE_URL
+   ```
+
+#### Fase B: Lado Servidor (Raspberry Pi 5)
+1. **NO clonar el repositorio en `~/Documents`**:
+   El runner de GitHub autogestiona el workspace en `/home/github-runner/actions-runner/_work/<repo>/<repo>`. Clonar a mano crea código redundante y desperdicia espacio en la tarjeta SD.
+2. **Crear el directorio y archivo `.env` de producción**:
+   ```bash
+   sudo install -d -o github-runner -g github-runner -m 700 /home/github-runner/env-backups/<repo>
+   sudo nano /home/github-runner/env-backups/<repo>/.env
+   sudo chown github-runner:github-runner /home/github-runner/env-backups/<repo>/.env
+   sudo chmod 600 /home/github-runner/env-backups/<repo>/.env
+   ```
+3. **Configurar Cloudflare Tunnel para el Backend**:
+   En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
+   ```yaml
+   - hostname: api-<proyecto>.<dominio>
+     service: http://localhost:<BACKEND_HOST_PORT>
+   ```
+   > [!WARNING]
+   > Usar SIEMPRE guion (`api-<proyecto>`), nunca dos puntos (`api.<proyecto>`). Cloudflare Universal SSL gratuito sólo cubre un nivel de comodín (`*.<dominio>`); dos puntos causan fallo fatal de handshake TLS (`SEC_E_ILLEGAL_MESSAGE`).
+
+   Enrutar el DNS y reiniciar el servicio:
+   ```bash
+   cloudflared tunnel route dns <NOMBRE_TUNEL> api-<proyecto>.<dominio>
+   sudo systemctl restart cloudflared
+   ```
+   *(Nota: si estás conectado por la terminal web `terminal.<dominio>`, la conexión WebSocket se cortará por 2 segundos arrojando "Press enter to reconnect". Basta con presionar Enter para reconectar)*.
+
+#### Fase C: Disparar el Despliegue
+Desde la máquina de desarrollo:
+```bash
+git push origin master
+# O manualmente con gh:
+gh workflow run deploy.yml --ref master
+```
+El runner en la Pi respaldará la base, compilará y levantará Docker en producción, correrá las migraciones/ingestas y verificará salud. Luego Vercel compilará y publicará el frontend en Edge de inmediato.
 
 ---
 

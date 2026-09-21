@@ -141,6 +141,8 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Nombres genéricos de contenedor, imagen o volumen (`database`, `pgdata`, `backend`) en un host compartido | **PREFIJAR POR PROYECTO.** Los nombres de Docker son un espacio compartido en todo el host: dos proyectos que elijan `database` se pisan, y el segundo en desplegar gana sin avisar (`docker-compose-recipes.md` §0.1). |
 | Variables con nombre propio en vez del contrato (`HOST_PORT_BACKEND`, `API_PORT`… en lugar de `BACKEND_HOST_PORT`) | **RENOMBRAR AL CONTRATO** (`docker-compose-recipes.md` §0). Los nombres son fijos en todos los repositorios; sólo los valores cambian. Un sinónimo no rompe de forma visible: cae al default y el smoke test prueba un puerto que nadie usa, con el job en verde. |
 | `healthcheck` apuntando a `localhost` **dentro** del contenedor | **USAR `127.0.0.1`.** `localhost` resuelve a `::1` y la app escucha en IPv4: el contenedor queda `unhealthy` para siempre con la app perfectamente sana, y el deploy falla en cada corrida (`docker-compose-recipes.md` §4.7). |
+| Subdominio anidado con punto (ej. `api.<proyecto>.<dominio>`) | **USAR SIEMPRE GUION (`api-<proyecto>.<dominio>`)**: Cloudflare Universal SSL solo cubre un nivel (`*.<dominio>`); dos puntos causan fallo de handshake TLS (`SEC_E_ILLEGAL_MESSAGE`). |
+| Clonar repositorio manualmente en `~/Documents` del servidor | **ELIMINAR ESTA PRÁCTICA**: el runner ya clona en `actions-runner/_work/<repo>/<repo>`. Clonar a mano duplica espacio en la tarjeta SD y desincroniza código. |
 
 ---
 
