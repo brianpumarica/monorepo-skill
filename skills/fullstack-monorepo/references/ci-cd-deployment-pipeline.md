@@ -323,6 +323,21 @@ El runner en la Pi respaldará la base, compilará y levantará Docker en produc
 - **Cómo confirmarlo**: `docker inspect <contenedor> --format '{{json .State.Health}}'` — el
   campo `Output` trae el error exacto de cada intento.
 
+### 12. `git push` No Dispara Actions en Repos Privados de Organización (Falla Silenciosa)
+- **Problem**: hacés `git push origin main/master`, la terminal confirma la subida, pero en Actions no
+  se crea ninguna corrida (`gh run list` no muestra nada y `actions/runs?event=push` devuelve 0).
+- **Causa**: en repositorios privados bajo organizaciones, el webhook interno que enlaza los eventos
+  `push` con Actions a veces queda inactivo o desincronizado al crearse o transferirse el repo.
+- **Bypass operativo inmediato**: no esperar al webhook; disparar el workflow a mano:
+  ```bash
+  gh workflow run deploy.yml --ref <rama>
+  ```
+- **Solución definitiva**: forzar a GitHub a reenganchar los detectores de eventos refrescando
+  los permisos de Actions del repositorio vía CLI:
+  ```bash
+  gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -F allowed_actions=all
+  ```
+
 ---
 
 ## 5. Self-Hosted Runner — Alcance, Entorno y Host Compartido
@@ -412,6 +427,7 @@ gh repo view --json nameWithOwner,isPrivate --jq '.'      # ¿esta bajo la organ
 gh run list --limit 10                                     # ¿alguna verde?
 gh secret list                                             # ¿estan cargados los secrets?
 gh api repos/<owner>/<repo>/actions/runners --jq '.runners[]?'   # ¿ve algun runner?
+gh api "repos/<owner>/<repo>/actions/runs?event=push" --jq '.total_count' # ¿el push dispara eventos o esta dormido? (§4.12)
 ```
 
 **Cómo se ve un runner que nunca levanta el job:** corridas en `cancelled` con `startedAt` y
