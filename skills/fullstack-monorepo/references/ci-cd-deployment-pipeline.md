@@ -227,6 +227,10 @@ Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack
 
    Enrutar el DNS y reiniciar el servicio:
    ```bash
+   # Si no recuerdas el nombre de tu túnel activo en la Raspberry Pi:
+   cloudflared tunnel list
+
+   # Enrutar el DNS y reiniciar el servicio:
    cloudflared tunnel route dns <NOMBRE_TUNEL> api-<proyecto>.<dominio>
    sudo systemctl restart cloudflared
    ```
@@ -337,6 +341,19 @@ El runner en la Pi respaldará la base, compilará y levantará Docker en produc
   ```bash
   gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -F allowed_actions=all
   ```
+
+### 13. Caché Negativa de DNS Local tras Enrutar el Túnel (`Could not resolve host`)
+- **Problem**: Inmediatamente tras ejecutar `cloudflared tunnel route dns` y reiniciar cloudflared, probar `curl https://api-<proyecto>.<dominio>/health` arroja `curl: (6) Could not resolve host`.
+- **Causa**: Si se intentó consultar el dominio antes o durante la creación de la ruta DNS, el resolver local (router del ISP o caché del sistema operativo) guardó en memoria la respuesta negativa (NXDOMAIN).
+- **Bypass / Validación inmediata**: Consultar mediante DNS sobre HTTPS (DoH) de Cloudflare o directamente al servidor `1.1.1.1`, saltando la caché del router local:
+  ```bash
+  # En Windows / PowerShell (forzando resolución DoH directa a Cloudflare):
+  curl.exe --doh-url https://cloudflare-dns.com/dns-query -fsS https://api-<proyecto>.<dominio>/health
+
+  # Verificar resolución pública en Cloudflare:
+  Resolve-DnsName api-<proyecto>.<dominio> -Server 1.1.1.1
+  ```
+- **Solución**: Limpiar la caché local de DNS (`ipconfig /flushdns` en Windows) o esperar de 2 a 5 minutos a que expire el TTL del router local.
 
 ---
 

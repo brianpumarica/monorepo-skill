@@ -371,18 +371,24 @@ Sin `healthcheck` propio, `Health` queda vacío y el deploy pipeline que espera 
 fallar por carrera, no por bug real.
 
 ```yaml
+    # Para Node.js / Alpine (con wget nativo):
     healthcheck:
-      test: ["CMD-SHELL", "<wget/curl/lo que traiga la imagen> http://127.0.0.1:$$PORT/<ruta-de-health> || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 15s
+
+    # Para Python (ej. python:*-slim) sin instalar curl ni wget:
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\")' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 ```
 
-Puerto, ruta y comando son placeholders: usar la variable de entorno, el endpoint y el binario
-HTTP reales de ese proyecto (alpine trae `wget`; otras imágenes pueden necesitar `curl` u otra
-alternativa). Usar `$$PORT` (doble `$`) para que lo resuelva el contenedor en runtime, no Compose
-al parsear el YAML.
+Puerto, ruta y comando son adaptables por stack: usar `127.0.0.1` (no `localhost`), el endpoint real del proyecto y binarios nativos del runtime (como `urllib.request` en Python para evitar instalar paquetes extras innecesarios). Usar `$$PORT` (doble `$`) si se desea que lo resuelva el contenedor en runtime, no Compose al parsear el YAML.
 
 ### 4.7 `127.0.0.1`, nunca `localhost`, dentro del contenedor
 
