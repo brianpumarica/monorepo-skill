@@ -93,23 +93,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore server environment file (.env)
+      # El .env vive SOLO en env-backups/<repo>/ y se copia en cada deploy: nunca se reutiliza
+      # el del workspace (puede estar viejo) ni se cae a .env.example. Un .env de ejemplo en
+      # produccion deja credenciales publicas (caso real: admin/admin + JWT_SECRET del repo).
+      - name: Load production environment file (.env)
+        env:
+          ENV_STORE: /home/github-runner/env-backups/${{ github.event.repository.name }}/.env
+          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET"   # ajustar por proyecto
         run: |
-          ENV_STORE="/home/github-runner/env-backups/${{ github.event.repository.name }}/.env"
-          if [ -f .env ]; then
-            echo "✅ .env already present in the runner workspace."
-          elif [ -f "$ENV_STORE" ]; then
-            echo "📋 Restoring .env from $ENV_STORE"
-            cp "$ENV_STORE" .env
-          else
+          if [ ! -f "$ENV_STORE" ]; then
             echo "❌ No .env found for this repository."
             echo "   Expected at: $ENV_STORE"
-            echo "   Create it once on the server (see §5.2):"
-            echo "     sudo install -d -o github-runner -g github-runner -m 700 $(dirname "$ENV_STORE")"
-            echo "     sudo install -o github-runner -g github-runner -m 600 ./.env $ENV_STORE"
+            echo "   Create it once on the server (see §5.2). One command, it generates the secrets:"
+            echo "     sudo bash $GITHUB_WORKSPACE/scripts/crear-env.sh"
             exit 1
           fi
+          cp "$ENV_STORE" .env
           chmod 600 .env
+          # Vacio, "admin" o igual al valor de .env.example = credencial de ejemplo en produccion.
+          for var in $REQUIRED_SECRETS; do
+            value=$(grep -m1 "^${var}=" .env | cut -d= -f2-)
+            example=$(grep -m1 "^${var}=" .env.example | cut -d= -f2-)
+            if [ -z "$value" ] || [ "$value" = "admin" ] || [ "$value" = "$example" ]; then
+              echo "❌ $var is empty or has an example value in $ENV_STORE"
+              exit 1
+            fi
+          done
+          echo "✅ .env loaded from $ENV_STORE (600)."
 
       - name: Build & Deploy Docker Containers with Force Recreate
         run: |
@@ -209,13 +219,16 @@ Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack
 #### Fase B: Lado Servidor (Raspberry Pi 5)
 1. **NO clonar el repositorio en `~/Documents`**:
    El runner de GitHub autogestiona el workspace en `/home/github-runner/actions-runner/_work/<repo>/<repo>`. Clonar a mano crea código redundante y desperdicia espacio en la tarjeta SD.
-2. **Crear el directorio y archivo `.env` de producción**:
+2. **Crear el `.env` de producción** con un solo comando. El primer deploy falla a propósito en
+   el paso del `.env`, pero el `checkout` ya dejó el repo en el workspace, y el log imprime este
+   comando exacto:
    ```bash
-   sudo install -d -o github-runner -g github-runner -m 700 /home/github-runner/env-backups/<repo>
-   sudo nano /home/github-runner/env-backups/<repo>/.env
-   sudo chown github-runner:github-runner /home/github-runner/env-backups/<repo>/.env
-   sudo chmod 600 /home/github-runner/env-backups/<repo>/.env
+   sudo bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/crear-env.sh
    ```
+   Genera `JWT_SECRET` (`openssl rand -hex 32`) y toda `*_PASSWORD` vacía en `.env.example`,
+   crea la carpeta y el archivo (`600`, dueño `github-runner`) y lista lo que falta completar a
+   mano (API keys: `sudo nano /home/github-runner/env-backups/<repo>/.env`). Si el proyecto ya
+   tiene base, el `POSTGRES_PASSWORD` real se copia a mano: la base ya fue creada con esa clave.
 3. **Configurar Cloudflare Tunnel para el Backend**:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
@@ -382,7 +395,9 @@ primer repositorio se lo queda y el resto lee credenciales ajenas o pisa las suy
 └── <repo-c>/.env
 ```
 
-Alta de un proyecto nuevo (una sola vez, en el servidor):
+Alta de un proyecto nuevo (una sola vez, en el servidor): `sudo bash scripts/crear-env.sh`
+(plantilla en [`crear-env.sh`](./crear-env.sh); cada repo la copia a `scripts/`). Para migrar un
+`.env` que ya existe, a mano:
 
 ```bash
 REPO=<nombre-del-repo>
