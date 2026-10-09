@@ -29,6 +29,7 @@ El job sale verde. Por eso la ortografía exacta es parte del estándar, no una 
 | `BACKEND_HOST_PORT` | Puerto del **host** hacia la API | ambos compose + smoke test del workflow |
 | `FRONTEND_HOST_PORT` | Puerto del **host** hacia el front de desarrollo | compose dev |
 | `DB_HOST_PORT` | Puerto del **host** hacia Postgres — **sólo desarrollo** | compose dev |
+| `HEALTH_PATH` | Ruta del endpoint de salud (default del estándar: `/api/health`) | `healthcheck` del compose prod + smoke test del workflow ([CI/CD §9](./ci-cd-deployment-pipeline.md)) |
 
 ### Base de datos y credenciales
 
@@ -54,6 +55,8 @@ proyecto (§0.1).
 | `BACKEND_DEV_IMAGE` / `BACKEND_PROD_IMAGE` | `acme-backend-dev` / `acme-backend-prod` |
 | `FRONTEND_DEV_IMAGE` | `acme-frontend-dev` |
 | `VOLUME_PGDATA_DEV_NAME` / `VOLUME_PGDATA_NAME` | `acme_pgdata-dev` / `acme_pgdata` |
+| `PROJECT_NAME` | `acme`: el prefijo del proyecto. El workflow lo lee para el contenedor de la base, la imagen del rollback y la etiqueta `com.proyecto` de la poda |
+| `IMAGE_TAG` | **No va en el `.env`**: lo fija el workflow al SHA del commit (`github.sha`). El compose lo usa con default `latest` |
 
 > **Los nombres de variable son fijos; los valores llevan el prefijo del proyecto.** Variables
 > separadas para desarrollo y producción, nunca una sola: con una sola, el `.env` del servidor
@@ -203,9 +206,10 @@ networks:
 ## 2. `docker-compose.prod.yml` (Production for Raspberry Pi / VPS)
 
 > [!IMPORTANT]
-> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los seis deltas
-> obligatorios de §4**: rotación de logs, variables requeridas, nombre de imagen por entorno,
-> hardening por servicio, sincronía de defaults y healthcheck nativo en servicios de aplicación.
+> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los siete deltas
+> obligatorios de §4**: rotación de logs, variables requeridas, nombre de imagen por entorno (con
+> tag por commit), hardening por servicio, sincronía de defaults, healthcheck nativo en servicios de
+> aplicación y etiqueta de proyecto en las imágenes.
 
 ```yaml
 services:
@@ -238,6 +242,10 @@ services:
       context: .
       dockerfile: ./apps/api/Dockerfile
       target: production
+      labels:
+        com.proyecto: ${PROJECT_NAME:-app}   # habilita la poda acotada (§4.8)
+    # Tag por commit: lo fija IMAGE_TAG en el workflow; `latest` sólo para un `up` manual (§4.3).
+    image: ${PROJECT_NAME:-app}-backend-prod:${IMAGE_TAG:-latest}
     container_name: ${PROJECT_NAME:-app}-backend-prod
     restart: unless-stopped
     ports:
@@ -248,6 +256,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3004}
+      HEALTH_PATH: ${HEALTH_PATH:-/api/health}   # la lee el healthcheck de abajo y el smoke test
       # El entrypoint necesita estas tres para esperar a la base y verificar con una consulta
       # real antes de migrar (database-lifecycle.md §1).
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
@@ -257,10 +266,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN is required}
     healthcheck:
-      # /health y wget son placeholders — ver §4.6. `127.0.0.1`, NO `localhost`: dentro del
-      # contenedor `localhost` resuelve a ::1 y una app que escucha en 0.0.0.0 (IPv4) da
-      # "connection refused" para siempre (§4.7).
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/health || exit 1"]
+      # wget es placeholder — ver §4.6. La ruta es HEALTH_PATH, la misma que usa el smoke test
+      # (CI/CD §9.3). `127.0.0.1`, NO `localhost`: dentro del contenedor `localhost` resuelve a
+      # ::1 y una app que escucha en 0.0.0.0 (IPv4) da "connection refused" para siempre (§4.7).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT$${HEALTH_PATH:-/api/health} || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -298,7 +307,7 @@ docker logs -f ${PROJECT_NAME:-app}-backend-prod
 
 ## 4. Endurecimiento Obligatorio del Compose de Producción
 
-Seis deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
+Siete deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
 en un host compartido.
 
 ### 4.1 Rotación de logs
@@ -324,17 +333,27 @@ de desarrollo:
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
 ```
 
-### 4.3 Nombre de imagen distinto por entorno
+### 4.3 Nombre de imagen distinto por entorno, y tag por commit
 
-Si dev y prod construyen al mismo nombre, levantar producción sin `--build` puede dejar corriendo
-la imagen de desarrollo — con el servidor de desarrollo en lugar del servidor real.
+Dos problemas distintos que se resuelven en la misma línea:
+
+1. **Nombre por entorno.** Si dev y prod construyen al mismo nombre, levantar producción sin
+   `--build` puede dejar corriendo la imagen de desarrollo — con el servidor de desarrollo en
+   lugar del servidor real.
+2. **Tag por commit.** Con `:latest`, cuando la verificación post-deploy falla no existe imagen
+   anterior a la que volver: el rollback es imposible por construcción.
 
 ```yaml
     build:
       context: .
       target: production
-    image: ${PROJECT_NAME:-app}-backend-prod   # dev usa -backend-dev
+    # dev usa -backend-dev. El tag sale de IMAGE_TAG (el workflow lo fija al SHA del commit);
+    # `latest` queda sólo como default para un `up` manual desde el servidor.
+    image: ${PROJECT_NAME:-app}-backend-prod:${IMAGE_TAG:-latest}
 ```
+
+> El rollback depende de esta línea. Ver [CI/CD §2.1](./ci-cd-deployment-pipeline.md) para las
+> otras dos piezas (`IMAGE_TAG` en el workflow y el archivo `last-good-tag` en el servidor).
 
 ### 4.4 Hardening por servicio — dónde sí y dónde no
 
@@ -373,7 +392,7 @@ fallar por carrera, no por bug real.
 ```yaml
     # Para Node.js / Alpine (con wget nativo):
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$$PORT$${HEALTH_PATH:-/api/health} || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -381,14 +400,14 @@ fallar por carrera, no por bug real.
 
     # Para Python (ej. python:*-slim) sin instalar curl ni wget:
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\")' || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/health\")' || exit 1"]   # misma ruta que HEALTH_PATH
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
 ```
 
-Puerto, ruta y comando son adaptables por stack: usar `127.0.0.1` (no `localhost`), el endpoint real del proyecto y binarios nativos del runtime (como `urllib.request` en Python para evitar instalar paquetes extras innecesarios). Usar `$$PORT` (doble `$`) si se desea que lo resuelva el contenedor en runtime, no Compose al parsear el YAML.
+Puerto y comando son adaptables por stack; la **ruta no**: es `HEALTH_PATH` y tiene que coincidir con el `.env` y el smoke test ([CI/CD §9](./ci-cd-deployment-pipeline.md)). En el ejemplo de Python, dentro de `python -c '...'` el shell no expande variables, así que la ruta se escribe literal. Para el resto: usar `127.0.0.1` (no `localhost`) y binarios nativos del runtime (como `urllib.request` en Python, para no instalar paquetes extras). Usar `$$PORT` (doble `$`) si se desea que lo resuelva el contenedor en runtime, no Compose al parsear el YAML.
 
 ### 4.7 `127.0.0.1`, nunca `localhost`, dentro del contenedor
 
@@ -410,3 +429,34 @@ espera "todo healthy" (§4.6), el job falla siempre — por el healthcheck, no p
   es correcto.
 - Alternativa si la app tiene que responder por las dos familias: escuchar en `::` con dual-stack.
   Cambiar el chequeo es más barato y no toca el código.
+
+### 4.8 Etiqueta de proyecto: la única poda segura en un host compartido
+
+`docker system prune` está prohibido porque se lleva lo de los demás proyectos. Pero si nada se
+poda nunca, cada despliegue deja una imagen huérfana y la SD del Pi se llena — que es la misma
+caída, sólo que más lenta y para todos a la vez.
+
+La salida es etiquetar las imágenes en el build, para poder podar **sólo las propias**:
+
+```yaml
+    build:
+      context: .
+      target: production
+      labels:
+        com.proyecto: ${PROJECT_NAME:-app}
+```
+
+Con eso, el paso de poda del workflow ([CI/CD §2](./ci-cd-deployment-pipeline.md)) queda acotado al
+proyecto:
+
+```bash
+docker image prune -af --filter "label=com.proyecto=<proyecto>" --filter "until=720h"
+```
+
+Tres detalles que hacen que esto sea seguro:
+
+- **`build.labels` etiqueta la imagen**, no el contenedor. `docker image prune --filter label=`
+  lee la etiqueta de la imagen: ponerla en `services.<svc>.labels` no sirve para podar.
+- **La imagen en uso nunca se poda**, así que la versión recién desplegada está a salvo.
+- **La poda corre después de promover**, nunca antes de verificar: podar primero borraría
+  justo la imagen anterior que el rollback necesita.

@@ -21,10 +21,21 @@ host. Se piden como argumento al invocarla (`/fullstack-monorepo analiza`) o en 
 
 | Modo | Fase | Comportamiento Obligatorio del Agente |
 | :--- | :--- | :--- |
-| **`analiza`** | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>4. Presenta el plan de acción listo para aprobación. |
+| **`analiza`** | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Ejecuta los **chequeos de coherencia** (ver abajo).<br>4. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>5. Presenta el plan de acción listo para aprobación. |
 | **`ejecuta`** | **Fase 2: Implementación & Erradicación** | 1. Aplica obligatoriamente el **Checklist de 6 Fases** para las tecnologías detectadas sin omitir entregables.<br>2. **Elimina proactivamente archivos legacy/anti-patrones**.<br>3. Ejecuta validaciones automáticas (`docker compose config`, lint, build).<br>4. Entrega el reporte de cambios completo. |
 | **`inspecciona`** | **Fase 0: Inspección del Entorno Desplegado** *(solo lectura)* | 1. **Primero, el canal: ¿el pipeline llegó a correr alguna vez?** Dueño del repo vs. organización dueña del runner, etiquetas, historial de corridas y secrets cargados (ver [CI/CD §5.1](./references/ci-cd-deployment-pipeline.md)). Si nunca hubo un deploy exitoso, **no hay nada desplegado que inspeccionar** y el resto del catálogo sobra.<br>2. Recién entonces emite el **Catálogo de Diagnóstico** —comandos exclusivamente de lectura— para ejecutar en el servidor ([CI/CD §6](./references/ci-cd-deployment-pipeline.md)).<br>3. Interpreta la salida y reporta el **estado real**: inventario completo de contenedores del host, salud, recursos, versión desplegada y desvíos del entorno.<br>4. **No modifica absolutamente nada.** Lo que haya para corregir se lista y se espera aprobación explícita. |
 | **(sin modo)** | **Modo Directo (All-in-One)** | Ejecuta el análisis y, si no existen dudas humanas ambiguas, **procede directamente a la ejecución exhaustiva** sin requerir confirmación intermedia. |
+
+### Chequeos de coherencia de `analiza`
+
+Desvíos que no se ven leyendo un archivo solo: hay que cruzar dos. Son baratos y los tres
+aparecieron como fallas reales de despliegue.
+
+| Chequeo | Cómo | Qué evita |
+| :--- | :--- | :--- |
+| **Variables sin documentar** | Toda variable referenciada en `docker-compose*.yml` existe en `.env.example` | Que la falta se descubra recién en el servidor, cuando `${VAR:?}` aborta el arranque |
+| **Ruta de salud coherente** | `HEALTH_PATH` del `.env`, el `healthcheck.test` del compose de prod y el smoke test del workflow dicen lo mismo | Un 404 que falla el job sobre un despliegue sano ([CI/CD §9.3](./references/ci-cd-deployment-pipeline.md)) |
+| **Imágenes base multi-arquitectura** | Toda imagen base publica manifiesto `linux/arm64` | Un build que anda en la máquina de desarrollo y explota en el Pi |
 
 ### Flujo recomendado
 
@@ -131,7 +142,15 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Comando de migraciones con `\|\| true` | **QUITAR el `\|\| true`**: abortar el arranque en lugar de servir la app contra un schema desactualizado. |
 | Dev y prod generando el **mismo nombre de imagen** | **NOMBRAR distinto por entorno.** Levantar producción sin `--build` puede dejar corriendo la imagen de desarrollo. |
 | Workflow de deploy que termina en `docker compose ps` | **AGREGAR verificación post-deploy** (contenedores `healthy` + smoke test al endpoint de salud) y hacer fallar el job si no pasa. |
-| Job de CI que no despliega nada pero corre en cada push | **ELIMINARLO.** |
+| Imagen de producción etiquetada sólo como `:latest` | **TAGUEAR por commit** (`IMAGE_TAG: ${{ github.sha }}`) y **agregar rollback**: si la verificación falla, re-levantar el tag anterior y recién ahí fallar el job. Con `:latest` no hay a dónde volver y el contenedor roto se queda sirviendo tráfico (CI/CD §2.1). |
+| Workflow sin `timeout-minutes` | **AGREGARLO** (30 min para el build ARM). En un runner self-hosted único, un job colgado bloquea a todos los proyectos del host hasta el default de 6 h. |
+| Workflow sin bloque `permissions:` | **AGREGAR `permissions: contents: read`.** El `GITHUB_TOKEN` no necesita escritura para desplegar. |
+| Deploy que corre migraciones sin volcado previo | **AGREGAR `pg_dump` antes del `up`**, en `backups/<repo>/pre-deploy/` y con retención de los últimos 7. El entrypoint migra al arrancar: después del `up` ya es tarde. |
+| Imágenes de producción sin etiqueta de proyecto | **AGREGAR `build.labels` con `com.proyecto`** (`docker-compose-recipes.md` §4.8). Es lo único que habilita una poda acotada: sin eso, o se prohíbe podar y el disco se llena, o se poda de más y se rompe a los vecinos. |
+| `docker system prune` (o `image prune` sin filtro) en el workflow | **ACOTAR con `--filter "label=com.proyecto=<proyecto>"`.** En un host compartido se lleva las imágenes de los vecinos. |
+| Frontend que se publica sin esperar al backend | **ENCADENAR con `needs:`.** Publicar una SPA contra una API que no levantó es una caída con mejor aspecto. |
+| Job de CI que no despliega **ni bloquea** nada: corre en cada push, nadie mira el resultado y su fallo no impide el deploy | **ELIMINARLO.** ⚠️ Esto **no** autoriza a borrar lint, tests ni type-check: un job que valida se *conecta*, no se elimina (fila siguiente). |
+| Validaciones (lint / test / build) que existen pero corren sueltas, en paralelo al deploy | **ENCADENARLAS con `needs:`** para que el deploy no arranque hasta que pasen. Un test rojo tiene que impedir el despliegue, no llegar tarde a avisar. |
 | Compose de producción sin rotación de logs | **AGREGAR `logging` con `max-size` / `max-file`** en todos los servicios: en un host compartido, un proyecto sin rotación llena el disco de todos. |
 | **Imagen con `entrypoint.sh` que llama a `pg_isready` sin `postgresql-client` instalado** | **AGREGAR `postgresql-client` a la etapa `base`.** El binario no viene en `node:*-alpine` ni en `python:*-slim`: el arranque agota los reintentos y el log culpa a la base de un paquete faltante. |
 | **Entrypoint con rutas relativas al `WORKDIR`** en un monorepo | **ANCLAR a la ubicación del script** (`APP_DIR` derivado de la ruta del propio script). Con `WORKDIR /app` y la app en `/app/apps/api`, ningún `if` matchea: migraciones y seed se saltean **en silencio**. |
@@ -154,7 +173,9 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 │   └── workflows/
 │       └── deploy.yml           # Pipeline Dual: Vercel CLI (Frontend) + Pi Runner (Backend)
 ├── .agents/
-│   └── skills/                  # Skills locales del workspace
+│   └── skills/                  # Directorio REAL de las skills locales
+├── .claude/
+│   └── skills/                  # Junctions hacia .agents/skills (ver regla abajo)
 ├── apps/ (o backend / frontend)
 │   ├── api/                     # Backend (NestJS / Express / FastAPI)
 │   │   ├── Dockerfile           # Multi-stage, Node 22 / Python 3.12, non-root
@@ -207,6 +228,26 @@ la raíz. Ver `dockerfile-recipes.md` §0, que separa los dos ejes.
 El `.dockerignore` va **junto a cada contexto de build**: uno en la raíz sirve para `context: .`,
 pero es invisible para `context: ./backend`.
 
+### Regla de las dos carpetas de skills
+
+`.claude/skills/` y `.agents/skills/` coexisten porque distintos agentes leen distintas rutas.
+**No son dos copias:** `.claude/skills/<skill>` es un *junction* de Windows que apunta a
+`.agents/skills/<skill>`. Hay un solo archivo real detrás de las dos rutas.
+
+1. **`.agents/skills/<skill>` es el directorio real.** Editar por cualquiera de las dos rutas es
+   equivalente: no hay nada que sincronizar y no pueden divergir.
+2. **Toda skill nueva se crea en `.agents/skills/` y se enlaza**, nunca se duplica a mano:
+   ```powershell
+   New-Item -ItemType Junction -Path .claude\skills\<skill> -Target .agents\skills\<skill>
+   ```
+3. ⚠️ **Nunca `rm -rf` a través de un junction.** El borrado lo atraviesa y se lleva el contenido
+   real de la otra carpeta; el link queda vacío y el `rm` falla recién al final con
+   `Device or resource busy`, cuando el daño ya está hecho. Para reemplazar archivos,
+   **sobrescribirlos** (`cp -f`); para eliminar una skill, borrar primero el junction.
+4. **Auditar el conjunto, no el contenido.** Lo que sí puede desincronizarse es *qué* skills están
+   enlazadas: `diff <(ls .agents/skills) <(ls .claude/skills)`. Una skill que aparece en una sola
+   de las dos no tiene junction y sólo la ve la mitad de los agentes.
+
 ---
 
 ## 7. Checklist de Implementación Mandatoria (6 Fases)
@@ -223,6 +264,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Consolidar stack de desarrollo en `docker-compose.yml` (dev-first con cero flags).
 - [ ] Eliminar cualquier archivo legacy redundante (`docker-compose.dev.yml`).
 - [ ] Generar `docker-compose.prod.yml` con imágenes de producción, healthchecks y reinicio `unless-stopped`.
+- [ ] Sincronizar `.env.example`: toda variable referenciada en los compose tiene que estar documentada ahí, incluida `HEALTH_PATH`.
 
 ### Fase 3: Backend Hardening
 - [ ] Elegir la receta por **lockfile y layout** (`dockerfile-recipes.md` §0): npm → §2/§5, pnpm+workspaces → §1/§4.
@@ -238,14 +280,19 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Configurar `frontend/Dockerfile` multi-stage con `nginx:alpine` para producción.
 
 ### Fase 5: CI/CD Pipeline Dual
-- [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Vercel CLI Frontend + Job 2: Raspberry Pi / Servidor Docker con `--force-recreate`).
+- [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Raspberry Pi / Servidor Docker con `--force-recreate`; Job 2: Vercel CLI Frontend con `needs: deploy-backend`).
 - [ ] Eliminar workflows de despliegue fragmentados u obsoletos.
 - [ ] Confirmar que el repositorio está **bajo la organización dueña del runner**.
 - [ ] Copiar [`references/crear-env.sh`](./references/crear-env.sh) a `scripts/crear-env.sh` y dejar vacías en `.env.example` las `*_SECRET` y `*_PASSWORD`.
 - [ ] Crear el `.env` del servidor con `sudo bash scripts/crear-env.sh`: genera los secretos y lo deja en su **carpeta por repositorio** (`/home/github-runner/env-backups/<repo>/.env`, `600`, dueño `github-runner`; verificar con `sudo`).
 - [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
 - [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.
-- [ ] Agregar el paso de **verificación post-deploy**: contenedores `healthy` + smoke test al endpoint de salud, con el job fallando si no pasa.
+- [ ] Agregar el paso de **verificación post-deploy**: contenedores `healthy` + smoke test al endpoint de salud (contrato en CI/CD §9), con el job fallando si no pasa.
+- [ ] Agregar `permissions: contents: read` y `timeout-minutes` a todos los jobs.
+- [ ] Configurar el **tag por commit** (`IMAGE_TAG`) y el **rollback automático** ante verificación fallida (CI/CD §2.1).
+- [ ] Agregar el **volcado de la base previo a las migraciones** (`backups/<repo>/pre-deploy/`, últimos 7).
+- [ ] Etiquetar las imágenes con `build.labels` (`com.proyecto`) y agregar la **poda acotada al proyecto** después de promover.
+- [ ] Encadenar el job del frontend al del backend con `needs:`.
 
 ### Fase 6: Documentación y Agentes
 - [ ] Generar `docs/architecture.md`, `docs/deployment.md` y `docs/api-reference.md`.
@@ -276,7 +323,7 @@ Para plantillas de código listas para usar:
 - [Dockerfile Recipes](./references/dockerfile-recipes.md) — **§0 elige la receta por lockfile y layout** (npm y pnpm), §7 trae las trampas de build verificadas
 - [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
 - [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
-- [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7) y la sonda de versión (§8)
+- [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
 - [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
 - [AGENTS.md Standard Template](./references/agents-md-template.md)

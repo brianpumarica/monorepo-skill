@@ -5,15 +5,17 @@
 
 ## 1. Pipeline Architecture
 
-The monorepo uses a decoupled, dual-track deployment triggered simultaneously on pushes/merges to the production branch:
+The monorepo uses a dual-track deployment triggered on pushes/merges to the production branch. The
+backend goes first and the frontend is published only if the backend came up healthy (`needs:`):
+a SPA pointing at a dead API is an outage with better looks.
 
 ```mermaid
 graph TD
     A[Push / Merge to main / master] --> B[GitHub Actions Runner]
-    B -->|Job 1: ubuntu-latest| C[Vercel CLI]
+    B -->|Job 1: self-hosted, rpi5| E[Raspberry Pi Self-Hosted Runner]
+    E -->|backup + docker compose up --force-recreate + verify / rollback| F[Backend + PostgreSQL en Docker]
+    F -->|needs: deploy-backend| C[Job 2: ubuntu-latest, Vercel CLI]
     C -->|Pull Env + Build + Deploy| D[Frontend Next.js / Vite en Vercel]
-    B -->|Job 2: self-hosted, rpi5| E[Raspberry Pi Self-Hosted Runner]
-    E -->|docker compose up --force-recreate| F[Backend + PostgreSQL en Docker]
     D -->|HTTPS REST API / Cloudflare| G[https://api.tudominio.com]
     G --> F
 ```
@@ -34,17 +36,157 @@ on:
       - master
   workflow_dispatch:   # permite probar el pipeline contra la infra real sin tocar main/master
 
+# Menor privilegio: el pipeline sólo necesita leer el repositorio.
+permissions:
+  contents: read
+
 concurrency:
   group: production-deploy
   cancel-in-progress: false
 
+env:
+  # Tag inmutable por commit. Con `:latest` no existe imagen anterior a la que volver cuando
+  # la verificación falla, y el rollback es imposible por construcción (§2.1).
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
   # ==========================================
-  # JOB 1: FRONTEND DEPLOYMENT VIA VERCEL CLI
+  # JOB 1: BACKEND DEPLOYMENT ON RASPBERRY PI
+  # ==========================================
+  deploy-backend:
+    name: Deploy Backend on Raspberry Pi 5
+    runs-on: [self-hosted, linux, rpi5]
+    # Un job colgado en el runner self-hosted único bloquea a TODOS los proyectos del host
+    # hasta el timeout por defecto (6 h). 30 min es holgado para un build ARM completo.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # El .env vive SOLO en env-backups/<repo>/ y se copia en cada deploy: nunca se reutiliza
+      # el del workspace (puede estar viejo) ni se cae a .env.example. Un .env de ejemplo en
+      # produccion deja credenciales publicas (caso real: admin/admin + JWT_SECRET del repo).
+      - name: Load production environment file (.env)
+        env:
+          ENV_STORE: /home/github-runner/env-backups/${{ github.event.repository.name }}/.env
+          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET"   # ajustar por proyecto
+        run: |
+          if [ ! -f "$ENV_STORE" ]; then
+            echo "❌ No .env found for this repository."
+            echo "   Expected at: $ENV_STORE"
+            echo "   Create it once on the server (see §5.2). One command, it generates the secrets:"
+            echo "     sudo bash $GITHUB_WORKSPACE/scripts/crear-env.sh"
+            exit 1
+          fi
+          cp "$ENV_STORE" .env
+          chmod 600 .env
+          # Vacio, "admin" o igual al valor de .env.example = credencial de ejemplo en produccion.
+          for var in $REQUIRED_SECRETS; do
+            value=$(grep -m1 "^${var}=" .env | cut -d= -f2-)
+            example=$(grep -m1 "^${var}=" .env.example | cut -d= -f2-)
+            if [ -z "$value" ] || [ "$value" = "admin" ] || [ "$value" = "$example" ]; then
+              echo "❌ $var is empty or has an example value in $ENV_STORE"
+              exit 1
+            fi
+          done
+          echo "✅ .env loaded from $ENV_STORE (600)."
+
+      - name: Backup database before migrations
+        run: |
+          # El entrypoint corre migraciones al arrancar el contenedor: el respaldo va ANTES
+          # del `up`, no después. Sin SSH ni transferencia de archivos, una migración mala
+          # sin volcado previo es irreversible.
+          set -a; . ./.env; set +a
+          DB="${PROJECT_NAME:-app}-database"
+          # Subcarpeta propia: el backup diario (scripts/backup.sh) comparte la raiz y su
+          # rotacion es otra; si compartieran carpeta, `tail -n +8` borraria los diarios.
+          BACKUP_DIR="/home/github-runner/backups/${{ github.event.repository.name }}/pre-deploy"
+          mkdir -p "$BACKUP_DIR"
+          if docker ps --format '{{.Names}}' | grep -qx "$DB"; then
+            F="$BACKUP_DIR/$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}.sql.gz"
+            # Sin `-t`: la TTY convierte LF en CRLF y corrompe el volcado.
+            docker exec "$DB" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip -9 > "$F"
+            [ -s "$F" ] || { echo "❌ El volcado salió vacío; se aborta el despliegue."; exit 1; }
+            echo "✅ Backup: $F ($(du -h "$F" | cut -f1))"
+            # Retención: los últimos 7. En la SD del Pi, los volcados también llenan el disco.
+            ls -1t "$BACKUP_DIR"/*.sql.gz | tail -n +8 | xargs -r rm --
+          else
+            echo "ℹ️ Primer despliegue: todavía no hay base que respaldar."
+          fi
+
+      - name: Record current version (rollback target)
+        run: |
+          LAST_GOOD_FILE="/home/github-runner/env-backups/${{ github.event.repository.name }}/last-good-tag"
+          echo "PREVIOUS_TAG=$(cat "$LAST_GOOD_FILE" 2>/dev/null || echo '')" >> "$GITHUB_ENV"
+
+      - name: Build & Deploy Docker Containers with Force Recreate
+        run: |
+          docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
+
+      - name: Verify deployment (rollback on failure)
+        run: |
+          set -a; . ./.env; set +a   # el shell del runner no tiene el .env cargado
+          rollback() {
+            if [ -z "$PREVIOUS_TAG" ]; then
+              echo "❌ No hay versión previa registrada (primer despliegue)."
+              echo "   El servicio queda caído y requiere intervención manual."
+              exit 1
+            fi
+            PREV_IMG="${PROJECT_NAME:-app}-backend-prod:$PREVIOUS_TAG"
+            if ! docker image inspect "$PREV_IMG" >/dev/null 2>&1; then
+              echo "❌ La imagen previa $PREV_IMG ya no está en el host: no hay rollback posible."
+              exit 1
+            fi
+            echo "↩️  Revirtiendo a $PREVIOUS_TAG"
+            IMAGE_TAG="$PREVIOUS_TAG" docker compose -f docker-compose.prod.yml up -d --force-recreate
+            echo "⚠️  Rollback aplicado: producción quedó en la versión anterior."
+            echo "    El job falla igual — el commit desplegado no sirve."
+            exit 1
+          }
+          docker compose -f docker-compose.prod.yml ps
+          echo "==> Waiting for every service to report healthy..."
+          for i in $(seq 1 30); do
+            UNHEALTHY=$(docker compose -f docker-compose.prod.yml ps \
+              --format '{{.Name}} {{.Health}}' | awk '$2 != "" && $2 != "healthy"')
+            [ -z "$UNHEALTHY" ] && break
+            sleep 5
+          done
+          if [ -n "$UNHEALTHY" ]; then
+            echo "❌ Services never became healthy:"; echo "$UNHEALTHY"
+            docker compose -f docker-compose.prod.yml logs --tail=80
+            rollback
+          fi
+          echo "==> Smoke test against the health endpoint (contrato en §9)"
+          # BACKEND_HOST_PORT y HEALTH_PATH son nombres del contrato (docker-compose-recipes.md
+          # §0) y no se renombran por proyecto: es lo que permite que este YAML sea identico en
+          # todos los repositorios. Un sinonimo cae al default y el smoke test prueba un puerto
+          # o una ruta que no usa nadie, con el job saliendo verde (o rojo sobre un deploy sano).
+          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}${HEALTH_PATH:-/api/health}" \
+            || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; rollback; }
+          echo "✅ Deployment verified."
+
+      - name: Promote version & prune project images
+        run: |
+          set -a; . ./.env; set +a
+          LAST_GOOD_FILE="/home/github-runner/env-backups/${{ github.event.repository.name }}/last-good-tag"
+          echo "$IMAGE_TAG" > "$LAST_GOOD_FILE"
+          # Host compartido: NUNCA `docker system prune`. Se poda sólo lo etiquetado como este
+          # proyecto (build.labels, docker-compose-recipes.md §4.8). La imagen recién
+          # promovida está en uso y nunca es candidata a poda.
+          docker image prune -af \
+            --filter "label=com.proyecto=${PROJECT_NAME:-app}" \
+            --filter "until=720h"
+
+  # ==========================================
+  # JOB 2: FRONTEND DEPLOYMENT VIA VERCEL CLI
   # ==========================================
   deploy-frontend:
     name: Build & Deploy Frontend to Vercel
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # El frontend no se publica si el backend no quedó sano: evita dejar una SPA en
+    # producción apuntando a una API caída.
+    needs: deploy-backend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,80 +224,42 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
-
-  # ==========================================
-  # JOB 2: BACKEND DEPLOYMENT ON RASPBERRY PI
-  # ==========================================
-  deploy-backend:
-    name: Deploy Backend on Raspberry Pi 5
-    runs-on: [self-hosted, linux, rpi5]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # El .env vive SOLO en env-backups/<repo>/ y se copia en cada deploy: nunca se reutiliza
-      # el del workspace (puede estar viejo) ni se cae a .env.example. Un .env de ejemplo en
-      # produccion deja credenciales publicas (caso real: admin/admin + JWT_SECRET del repo).
-      - name: Load production environment file (.env)
-        env:
-          ENV_STORE: /home/github-runner/env-backups/${{ github.event.repository.name }}/.env
-          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET"   # ajustar por proyecto
-        run: |
-          if [ ! -f "$ENV_STORE" ]; then
-            echo "❌ No .env found for this repository."
-            echo "   Expected at: $ENV_STORE"
-            echo "   Create it once on the server (see §5.2). One command, it generates the secrets:"
-            echo "     sudo bash $GITHUB_WORKSPACE/scripts/crear-env.sh"
-            exit 1
-          fi
-          cp "$ENV_STORE" .env
-          chmod 600 .env
-          # Vacio, "admin" o igual al valor de .env.example = credencial de ejemplo en produccion.
-          for var in $REQUIRED_SECRETS; do
-            value=$(grep -m1 "^${var}=" .env | cut -d= -f2-)
-            example=$(grep -m1 "^${var}=" .env.example | cut -d= -f2-)
-            if [ -z "$value" ] || [ "$value" = "admin" ] || [ "$value" = "$example" ]; then
-              echo "❌ $var is empty or has an example value in $ENV_STORE"
-              exit 1
-            fi
-          done
-          echo "✅ .env loaded from $ENV_STORE (600)."
-
-      - name: Build & Deploy Docker Containers with Force Recreate
-        run: |
-          docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
-
-      - name: Verify deployment (fails the job if unhealthy)
-        run: |
-          docker compose -f docker-compose.prod.yml ps
-          echo "==> Waiting for every service to report healthy..."
-          for i in $(seq 1 30); do
-            UNHEALTHY=$(docker compose -f docker-compose.prod.yml ps \
-              --format '{{.Name}} {{.Health}}' | awk '$2 != "" && $2 != "healthy"')
-            [ -z "$UNHEALTHY" ] && break
-            sleep 5
-          done
-          if [ -n "$UNHEALTHY" ]; then
-            echo "❌ Services never became healthy:"; echo "$UNHEALTHY"
-            docker compose -f docker-compose.prod.yml logs --tail=80
-            exit 1
-          fi
-          echo "==> Smoke test against the health endpoint"
-          set -a; . ./.env; set +a   # el shell del runner no tiene el .env cargado
-          # BACKEND_HOST_PORT es el nombre del contrato (docker-compose-recipes.md §0) y no se
-          # renombra por proyecto: es lo que permite que este YAML sea identico en todos los
-          # repositorios. Un sinonimo cae al default y el smoke test prueba un puerto que no
-          # usa nadie, con el job saliendo verde.
-          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}/health" \
-            || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; exit 1; }
-          echo "✅ Deployment verified."
 ```
 
 > [!WARNING]
-> Endpoint, nombre de servicio y fallback de puerto son placeholders — copiarlos tal cual del
-> `.env`/compose reales del proyecto, no asumirlos. Y sin `healthcheck` nativo en el servicio
-> (§4.6 de [`docker-compose-recipes.md`](./docker-compose-recipes.md)), el loop de espera no
-> espera nada: falla por carrera, no por bug real.
+> Nombre de servicio (`backend`), prefijo (`PROJECT_NAME`) y fallback de puerto son placeholders —
+> copiarlos tal cual del `.env`/compose reales del proyecto, no asumirlos. Y sin `healthcheck`
+> nativo en el servicio (§4.6 de [`docker-compose-recipes.md`](./docker-compose-recipes.md)), el
+> loop de espera no espera nada: falla por carrera, no por bug real.
+
+> **Validaciones antes del deploy.** Si el repositorio tiene lint, tests o type-check, van en un
+> job propio y los jobs de despliegue lo declaran en `needs:`. Un job de validación que corre en
+> paralelo al deploy no protege nada: avisa cuando el commit roto ya está en producción.
+
+### 2.1 Por qué el tag por commit no es opcional
+
+Con `image: <proyecto>-backend-prod:latest`, cuando la verificación falla no hay a dónde volver:
+la única imagen que existe es la que acaba de romper producción. El job queda rojo y **el
+contenedor roto sigue sirviendo tráfico** — el peor de los dos mundos, porque nadie se entera
+hasta que un usuario reclama.
+
+Con un tag por commit, el rollback es re-levantar la etiqueta anterior. Las tres piezas:
+
+| Pieza | Dónde vive | Para qué |
+| :--- | :--- | :--- |
+| `IMAGE_TAG: ${{ github.sha }}` | `env:` del workflow | Cada build produce una imagen distinguible |
+| `image: ...:${IMAGE_TAG:-latest}` | `docker-compose.prod.yml` ([recetas de compose](./docker-compose-recipes.md) §4.3) | Levantar una versión concreta, no "la última" |
+| `last-good-tag` | `env-backups/<repo>/` | Sobrevive entre corridas: el runner limpia el workspace en cada checkout |
+
+El archivo `last-good-tag` **se escribe recién después de que la verificación pasa**. Un despliegue
+fallido nunca se convierte en destino de rollback. Y la poda corre **después** de promover: podar
+antes borraría justo la imagen anterior que el rollback necesita.
+
+### 2.2 Respaldo previo y respaldo diario: dos carpetas
+
+El respaldo previo a migrar vive en `backups/<repo>/pre-deploy/` (retención: los últimos 7). El
+backup diario de [`backup.sh`](./backup.sh) usa la raíz `backups/<repo>/` con otra rotación
+(`RETENTION_DAYS`). Si compartieran carpeta, el `tail -n +8` del deploy borraría los diarios.
 
 ---
 
@@ -356,12 +460,12 @@ El runner en la Pi respaldará la base, compilará y levantará Docker en produc
   ```
 
 ### 13. Caché Negativa de DNS Local tras Enrutar el Túnel (`Could not resolve host`)
-- **Problem**: Inmediatamente tras ejecutar `cloudflared tunnel route dns` y reiniciar cloudflared, probar `curl https://api-<proyecto>.<dominio>/health` arroja `curl: (6) Could not resolve host`.
+- **Problem**: Inmediatamente tras ejecutar `cloudflared tunnel route dns` y reiniciar cloudflared, probar `curl https://api-<proyecto>.<dominio>/api/health` arroja `curl: (6) Could not resolve host`.
 - **Causa**: Si se intentó consultar el dominio antes o durante la creación de la ruta DNS, el resolver local (router del ISP o caché del sistema operativo) guardó en memoria la respuesta negativa (NXDOMAIN).
 - **Bypass / Validación inmediata**: Consultar mediante DNS sobre HTTPS (DoH) de Cloudflare o directamente al servidor `1.1.1.1`, saltando la caché del router local:
   ```bash
   # En Windows / PowerShell (forzando resolución DoH directa a Cloudflare):
-  curl.exe --doh-url https://cloudflare-dns.com/dns-query -fsS https://api-<proyecto>.<dominio>/health
+  curl.exe --doh-url https://cloudflare-dns.com/dns-query -fsS https://api-<proyecto>.<dominio>/api/health
 
   # Verificar resolución pública en Cloudflare:
   Resolve-DnsName api-<proyecto>.<dominio> -Server 1.1.1.1
@@ -498,7 +602,7 @@ docker system df
 ```bash
 # Versión desplegada (ver §8), edad de la imagen y variables efectivas DENTRO del contenedor
 # — que es lo único que manda, no lo que diga el .env del repo.
-curl -fsS http://localhost:<puerto>/health
+curl -fsS http://localhost:<puerto><HEALTH_PATH>   # contrato en §9
 docker inspect --format '{{.Config.Image}} creado {{.Created}}' <contenedor>
 docker exec <contenedor> printenv <VAR_1> <VAR_2>
 ```
@@ -571,3 +675,50 @@ inadvertida durante semanas mientras la anterior sigue respondiendo.
 
 > El marcador puede quedarse: es inofensivo y sigue sirviendo para responder "¿qué versión está
 > arriba?" desde el catálogo de diagnóstico (§6.3).
+
+---
+
+## 9. Contrato del Endpoint de Salud
+
+El smoke test post-deploy y el `healthcheck` del compose apuntan a este endpoint, así que su
+comportamiento decide si un despliegue se acepta o se revierte. No alcanza con que exista: si
+devuelve `200` sin mirar nada, la verificación aprueba despliegues rotos.
+
+### 9.1 Reglas
+
+| Regla | Por qué |
+| :--- | :--- |
+| **La ruta se declara en `.env` como `HEALTH_PATH`** | El default del estándar es `/api/health`, no `/health`: la mayoría de los backends montan el router bajo `/api`. Un smoke test contra la ruta equivocada da 404 y tumba un despliegue sano. |
+| **Sin autenticación** | El healthcheck corre dentro del contenedor y el smoke test desde el host; ninguno de los dos tiene credenciales. |
+| **Consulta real a la base** | Un `SELECT NOW()` es la diferencia entre "el proceso arrancó" y "la aplicación funciona". Sin esto el deploy pasa con la base caída. |
+| **Devuelve la versión desplegada** | Es lo que convierte al endpoint en la sonda de §8: responde "qué está arriba" sin entrar al servidor. |
+| **Nunca expone secretos ni cadenas de conexión** | Es un endpoint público detrás del túnel. |
+
+### 9.2 Forma de la respuesta
+
+```json
+{
+  "status": "OK",
+  "environment": "production",
+  "version": "a1b2c3d",
+  "database": "connected",
+  "dbTime": "2026-01-01T12:00:00.000Z"
+}
+```
+
+`status` distinto de `OK` **debe** venir con un código HTTP de error: `curl -fsS` decide por el
+código, no por el cuerpo. Un `200 {"status":"DEGRADED"}` es un despliegue roto que el pipeline
+aprueba.
+
+### 9.3 Coherencia entre las tres referencias
+
+La misma ruta aparece en tres lugares y los tres tienen que coincidir:
+
+1. `HEALTH_PATH` en `.env` y en `.env.example`.
+2. El `healthcheck.test` del servicio en `docker-compose.prod.yml` (con `127.0.0.1`, no `localhost`: pitfall 11 de §4).
+3. El smoke test del workflow (§2).
+
+> Desvío verificado en producción: un backend que sirve en `/api/health` con el workflow probando
+> `/health`. El healthcheck del contenedor decía `healthy`, el smoke test daba 404 y el job
+> fallaba — sobre un despliegue que estaba perfecto. Cuando el pipeline falla, revisar primero que
+> las tres referencias digan lo mismo.
