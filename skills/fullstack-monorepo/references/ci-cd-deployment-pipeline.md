@@ -649,7 +649,61 @@ docker compose -f docker-compose.prod.yml logs --tail=80
 docker logs --tail=80 --since 30m <contenedor>
 ```
 
-### 6.5 Reglas del modo
+### 6.5 Credenciales de ejemplo en producción
+
+Un `.env` de producción con la contraseña o el secreto de `.env.example` deja credenciales
+públicas (el repo es legible): pasó con `ADMIN_PASSWORD` y `JWT_SECRET`. Compara **cada**
+variable `*_PASSWORD` / `*_SECRET` contra la plantilla y **no imprime ningún valor**, solo el
+veredicto. Una línea por repo (reemplazar `<repo>`; el workspace tiene el `.env.example` del
+último deploy):
+
+```bash
+sudo awk -F= 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD)$/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print $1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' /home/github-runner/actions-runner/_work/<repo>/<repo>/.env.example /home/github-runner/env-backups/<repo>/.env
+```
+
+Salida esperada: `OK` en todas. `EJEMPLO` (igual a la plantilla, o `admin`) es un hallazgo
+**crítico**: rotarla con [`rotar-secretos.sh`](./rotar-secretos.sh) (§5.2). `VACIO` en una
+variable obligatoria también; en una API key opcional, no.
+
+### 6.6 Cron versionado: ¿las rutas existen?
+
+El backup puede fallar en silencio durante meses si el cron apunta a un lugar que no existe
+(caso real: `/home/pi/...`, un usuario que nunca estuvo en el servidor). Lista cada ruta del
+`crontab` del usuario del runner y dice si existe (para los `.log`, si existe su carpeta):
+
+```bash
+sudo -u github-runner bash -c 'crontab -l | grep -v "^[[:space:]]*#" | grep -o "[^ ]*/[^ ]*" | sed "s#^\$HOME#$HOME#;s#^~#$HOME#" | sort -u | while read -r p; do case "$p" in *.log) p=$(dirname "$p");; esac; if [ -e "$p" ]; then echo "OK     $p"; else echo "MUERTA $p"; fi; done'
+```
+
+Salida esperada: todo `OK`. Cualquier `MUERTA` es un backup que no está corriendo. Dos
+complementos: que `crontab -l` tenga una línea por proyecto (si falta una, el deploy nunca
+instaló el cron, §2.3) y que el último archivo de `~/backups/<repo>/` tenga menos de ~36 h:
+
+```bash
+sudo -u github-runner bash -c 'for d in $HOME/backups/*/; do echo "$d  $(find "$d" -maxdepth 1 -name "db_*.sql.gz" -mmin -2160 | wc -l) recientes"; done'
+```
+
+`0 recientes` en un proyecto con cron instalado = el backup se atrasó o está fallando (el
+motivo está en su `backup.log`).
+
+### 6.7 `.env` sueltos y carpetas fuera de convención
+
+El almacén tiene que ser exactamente `env-backups/<repo>/.env` (más `last-good-tag` y las copias
+`.env.bak-*` de `rotar-secretos.sh`). Un `.env` en la raíz del almacén es del layout viejo y
+nadie lo lee: puede estar desactualizado y llevar credenciales vivas.
+
+```bash
+sudo find /home/github-runner/env-backups -maxdepth 1 -type f                       # sueltos en la raíz
+sudo find /home/github-runner/env-backups -mindepth 2 -type f ! -name .env ! -name last-good-tag ! -name '.env.bak-*'   # archivos raros dentro de una carpeta
+sudo bash -c 'for d in /home/github-runner/env-backups/*/; do [ -f "${d}.env" ] || echo "sin .env: $d"; done'            # carpeta sin .env
+diff <(sudo ls /home/github-runner/env-backups) <(sudo ls /home/github-runner/actions-runner/_work | grep -v "^_")   # < env sin repo   > repo sin env
+```
+
+Salida esperada: vacía en las tres primeras. En el `diff`, `<` es un `.env` de un repo que ya
+no se despliega (candidato a archivar) y `>` un repo que corre sin `.env` propio. Borrar un
+suelto se propone **después** de confirmar que su carpeta tiene un `.env` vigente (§5.2).
+
+### 6.8 Reglas del modo
 
 1. **Solo lectura.** Nada de `up`, `down`, `restart`, `rm`, `prune` ni escrituras en la base.
 2. **Comandos de una sola línea**, pegables en una terminal web, con la salida esperada indicada.
