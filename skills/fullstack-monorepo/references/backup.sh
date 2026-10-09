@@ -10,6 +10,10 @@
 #    puede abrirlo, que es como un backup fallo en silencio): usuario y base salen del
 #    contenedor de la base, y los archivos subidos de los montajes del backend.
 # 4. Rotacion para no llenar el disco del host compartido.
+# 5. Si falla, AVISA: llama a $AVISAR (por defecto /home/github-runner/avisar.sh, plantilla en
+#    avisar.sh) con el mensaje. Un backup que falla en silencio no es un backup. Si ese script
+#    no existe, solo queda el log. verificar-backup.sh cubre el otro caso: que este script ni
+#    siquiera corra.
 set -eo pipefail
 
 # --- Configuracion (lo unico que cambia por proyecto) -------------------------
@@ -18,11 +22,16 @@ DB_CONTAINER="CAMBIAR-database"     # contenedor de PostgreSQL
 API_CONTAINER="CAMBIAR-back-prod"   # contenedor del backend que monta los archivos subidos
 UPLOADS_DEST=""                     # ruta DENTRO del backend (ej. /app/uploads); vacio = sin archivos
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
+AVISAR="${AVISAR:-/home/github-runner/avisar.sh}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/$REPO_NAME}"
 # -----------------------------------------------------------------------------
 
 DATE=$(date +"%Y%m%d_%H%M%S")
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
+# Avisar nunca debe romper el backup ni taparle su codigo de salida.
+avisar() { [ -x "$AVISAR" ] && "$AVISAR" "$1" || true; }
+# EXIT cubre tanto los `exit 1` explicitos como cualquier comando que `set -e` aborte.
+trap 'rc=$?; [ "$rc" -eq 0 ] || avisar "❌ Backup de $REPO_NAME fallo (codigo $rc). Ver backup.log"' EXIT
 
 log "==> Backup de $REPO_NAME"
 docker ps --format '{{.Names}}' | grep -qx "$DB_CONTAINER" \
@@ -57,6 +66,7 @@ if [ -n "$UPLOADS_DEST" ]; then
     log "✅ Archivos: $FILES_FILE ($(du -h "$FILES_FILE" | cut -f1))"
   else
     log "⚠️ No se pudieron respaldar los archivos de $UPLOADS_DEST en '$API_CONTAINER'."
+    avisar "⚠️ Backup de $REPO_NAME: la base se respaldo pero NO los archivos de $UPLOADS_DEST"
     rm -f "$FILES_FILE"
   fi
 fi

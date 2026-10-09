@@ -5,3 +5,6 @@
 # la carpeta real. Toda linea tiene que contener el nombre del repo (ruta o log): asi se filtra.
 # Backup diario a las 03:<minuto>. Escalonar de a 10 minutos: 03:00, 03:10, 03:20, ...
 0 3 * * * /bin/bash __DIR__/scripts/backup.sh >> $HOME/backups/<repo>/backup.log 2>&1
+# Chequeo diario (09:00) de que exista un backup de menos de 36 h; avisa si no. Independiente de
+# backup.sh a proposito: detecta tambien un cron que apunta a una ruta muerta.
+0 9 * * * /bin/bash __DIR__/scripts/verificar-backup.sh <repo> >> $HOME/backups/<repo>/backup.log 2>&1

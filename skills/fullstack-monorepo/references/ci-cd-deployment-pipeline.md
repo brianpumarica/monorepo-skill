@@ -290,6 +290,26 @@ franja) para que dos `pg_dump` no corran a la vez en la Pi. No hay registro auto
 alta de un proyecto nuevo, mirar `crontab -l` del runner y tomar la siguiente franja libre.
 Un deploy fallido no toca el cron (el paso va al final).
 
+**Avisos.** Un backup que falla en silencio no es un backup (un proyecto estuvo meses sin
+respaldo y nadie lo supo). Dos piezas, ambas en la plantilla de `crontab`:
+
+- [`backup.sh`](./backup.sh) avisa si termina con error (o si falla solo la copia de archivos).
+- [`verificar-backup.sh`](./verificar-backup.sh) corre cada día a las 09:00 y avisa si no hay un
+  dump de menos de 36 h. Mira el **resultado**, no el proceso: es lo único que detecta un cron
+  que nunca corre (ruta muerta, crontab sin instalar).
+
+Ambos llaman a `/home/github-runner/avisar.sh`, **una copia por servidor** (no por repo), cuya
+plantilla es [`avisar.sh`](./avisar.sh): manda el mensaje a un webhook cuya URL vive en
+`/home/github-runner/avisar.env` (`AVISO_URL=...`, `600`, fuera de todo repo). Si el script no
+existe, el aviso se reduce al log. Instalarlo una vez:
+
+```bash
+sudo install -o github-runner -g github-runner -m 700 avisar.sh /home/github-runner/avisar.sh
+sudo install -o github-runner -g github-runner -m 600 /dev/null /home/github-runner/avisar.env
+sudo nano /home/github-runner/avisar.env      # AVISO_URL=https://...
+sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
+```
+
 ---
 
 ## 3. Vercel CLI Strategy & Monorepo Gotchas
@@ -677,7 +697,8 @@ sudo -u github-runner bash -c 'crontab -l | grep -v "^[[:space:]]*#" | grep -o "
 
 Salida esperada: todo `OK`. Cualquier `MUERTA` es un backup que no está corriendo. Dos
 complementos: que `crontab -l` tenga una línea por proyecto (si falta una, el deploy nunca
-instaló el cron, §2.3) y que el último archivo de `~/backups/<repo>/` tenga menos de ~36 h:
+instaló el cron, §2.3) y que el último archivo de `~/backups/<repo>/` tenga menos de ~36 h (lo
+mismo que vigila `verificar-backup.sh` a diario, §2.3, pero acá a demanda):
 
 ```bash
 sudo -u github-runner bash -c 'for d in $HOME/backups/*/; do echo "$d  $(find "$d" -maxdepth 1 -name "db_*.sql.gz" -mmin -2160 | wc -l) recientes"; done'
