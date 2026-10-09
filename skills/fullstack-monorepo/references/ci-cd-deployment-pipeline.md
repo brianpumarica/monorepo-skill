@@ -393,7 +393,21 @@ echo 'github-runner ALL=(root) NOPASSWD: /usr/local/sbin/tunel-agregar' | sudo t
 sudo chmod 440 /etc/sudoers.d/tunel-agregar && sudo visudo -c
 ```
 
+Antes de la primera ejecución, **comprobar sin cambiar nada** que tu `cloudflared` acepta el comando de
+validación que usa el script, y que el contenedor publica el puerto:
+`sudo cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate` (debe decir `OK`).
+
 Uso a mano (también para probar): `sudo tunel-agregar <repo>` y `sudo tunel-agregar --quitar <repo>`.
+**Lanzarlo con `nohup` y el log en tu carpeta**, no en `/tmp`:
+`sudo nohup tunel-agregar <repo> > ~/tunel.log 2>&1; cat ~/tunel.log`. Reiniciar `cloudflared` corta la
+terminal web (si entrás por el propio Tunnel) y, sin `nohup`, el script podría morir después del
+reinicio y antes de comprobar que quedó activo. Tras reconectar con Enter, `cat ~/tunel.log`.
+(Probado en una prueba real que `setsid -f` dentro de `sudo bash -c` no llegó a ejecutar nada; no se
+investigó la causa: usar `nohup`.)
+
+**Verificado en un servidor real:** alta, idempotencia (la segunda corrida no reinicia), `--quitar`, y
+el camino completo por el deploy (la ruta se quitó a propósito y el deploy la volvió a registrar sola:
+de `404` a `200`), con el `sudo -n` del runner y la regla de `sudoers` de arriba.
 Quitar una ruta **no borra el CNAME** de DNS (`cloudflared` no tiene un comando para eso): se borra
 en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él, la ruta queda en el
 `config.yml` y el script avisa que falta crear el CNAME.

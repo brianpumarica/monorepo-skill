@@ -27,6 +27,11 @@
 # Pruebas (sin root, sin servidor): variables CONFIG, CONF_FILE, ENV_BASE y TUNEL_SIN_ROOT=1.
 set -uo pipefail
 
+# Reiniciar cloudflared corta la conexion de quien este conectado por el propio Tunnel (p. ej. una
+# terminal web): ignorar el HUP evita que el script muera a mitad, despues del reinicio y antes de
+# comprobar que cloudflared quedo activo.
+trap '' HUP
+
 CONFIG=${CONFIG:-/etc/cloudflared/config.yml}
 CONF_FILE=${CONF_FILE:-/etc/tunel-agregar.conf}
 ENV_BASE=${ENV_BASE:-/home/github-runner/env-backups}
