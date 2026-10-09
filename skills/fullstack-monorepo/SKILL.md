@@ -39,6 +39,7 @@ desvió de la plantilla no avisa, simplemente despliega distinto.
 | **Ruta de salud coherente** | `HEALTH_PATH` del `.env`, el `healthcheck.test` del compose de prod y el smoke test del workflow dicen lo mismo | Un 404 que falla el job sobre un despliegue sano ([CI/CD §9.3](./references/ci-cd-deployment-pipeline.md)) |
 | **Paso del `.env` canónico** | En el `deploy.yml`: el `.env` se copia **solo** de `env-backups/<repo>/.env` y el job falla si no está; sin fallback a `.env.example`; hay `REQUIRED_SECRETS` que compara contra la plantilla. Rápido: `grep -n -e env-backups -e '\.env\.example' -e REQUIRED_SECRETS .github/workflows/deploy.yml`, y buscar `cp .env.example`, `[ -f .env ]` o un `cp` a `.env` que no venga del almacén | Producción con credenciales públicas del repo, o con un `.env` viejo del workspace (CI/CD §2) |
 | **Secretos por `env:`** | `grep -nE -e 'run:.*secrets\.' -e '--[a-z-]+=.*secrets\.' .github/workflows/deploy.yml` no devuelve nada | Un secreto con comillas o `\|` que rompe el script |
+| **Puertos y horarios libres** | El `deploy.yml` corre `scripts/chequear-host.sh` antes del backup; los `*_HOST_PORT` por defecto del compose no coinciden con los de otro repo del mismo servidor | El "port is already allocated" que aparece recién en el `up`, con el contenedor viejo ya bajado (CI/CD §2.4) |
 | **Imágenes base multi-arquitectura** | Toda imagen base publica manifiesto `linux/arm64` | Un build que anda en la máquina de desarrollo y explota en el Pi |
 
 ### Flujo recomendado
@@ -293,6 +294,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Copiar [`references/rotar-secretos.sh`](./references/rotar-secretos.sh) a `scripts/rotar-secretos.sh` (rotación de `JWT_SECRET` y de la clave de la base, ci-cd §5.2).
 - [ ] Copiar [`references/backup.sh`](./references/backup.sh) a `scripts/backup.sh` (ajustando solo las 4 variables de arriba) y [`references/crontab`](./references/crontab) a `scripts/crontab` (con el nombre del repo y el siguiente minuto libre a partir de las 03:00). El deploy instala el cron solo (§2.3 de `ci-cd-deployment-pipeline.md`); no se usa `crontab -e`.
 - [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
+- [ ] Copiar [`references/chequear-host.sh`](./references/chequear-host.sh) a `scripts/chequear-host.sh`, agregar su paso al `deploy.yml` (justo después del `.env`) y elegir el horario del backup con `bash scripts/chequear-host.sh libre`: el servidor es el registro de puertos y horarios, no un archivo (ci-cd §2.4).
 - [ ] Copiar [`references/verificar-backup.sh`](./references/verificar-backup.sh) a `scripts/` e instalar **una vez por servidor** [`avisar.sh`](./references/avisar.sh): así un backup fallido o atrasado avisa en lugar de callar (ci-cd §2.3).
 - [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.
 - [ ] Agregar el paso de **verificación post-deploy**: contenedores `healthy` + smoke test al endpoint de salud (contrato en CI/CD §9), con el job fallando si no pasa.

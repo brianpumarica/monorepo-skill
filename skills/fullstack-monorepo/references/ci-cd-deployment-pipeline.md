@@ -91,6 +91,11 @@ jobs:
           done
           echo "✅ .env loaded from $ENV_STORE (600)."
 
+      # Antes de tocar nada: un puerto ya usado por otro proyecto aparece recien en el `up`
+      # ("port is already allocated"), con el backup hecho y el contenedor viejo ya bajado.
+      - name: Check host ports and backup schedule
+        run: bash scripts/chequear-host.sh
+
       - name: Backup database before migrations
         run: |
           # El entrypoint corre migraciones al arrancar el contenedor: el respaldo va ANTES
@@ -295,10 +300,27 @@ proyectos quedan intactas; por eso **toda línea del archivo debe contener el no
 (basta con que lo lleve la ruta `__DIR__` o la del log). `__DIR__` lo cambia el deploy por la
 carpeta real del workspace.
 
-El horario del backup se escalona a mano de a 10 minutos desde las 03:00 (un proyecto por
-franja) para que dos `pg_dump` no corran a la vez en la Pi. No hay registro automático: al
-alta de un proyecto nuevo, mirar `crontab -l` del runner y tomar la siguiente franja libre.
-Un deploy fallido no toca el cron (el paso va al final).
+El horario del backup se escalona de a 10 minutos desde las 03:00 (un proyecto por franja) para
+que dos `pg_dump` no corran a la vez en la Pi. Un deploy fallido no toca el cron (el paso va al
+final).
+
+### 2.4 Puertos y horarios: el servidor es el registro
+
+No hay un archivo de registro escrito a mano, a propósito: se desactualiza, y los nombres de los
+proyectos de un servidor no pertenecen a un repositorio público. La fuente de verdad es lo que el
+host ya sabe (los puertos que publican los contenedores y el `crontab` del runner), y
+[`chequear-host.sh`](./chequear-host.sh) (se copia a `scripts/`) lo consulta:
+
+| Cuándo | Comando | Qué hace |
+| :--- | :--- | :--- |
+| **Cada deploy**, justo después de cargar el `.env` | `bash scripts/chequear-host.sh` | **Falla** si `BACKEND_HOST_PORT`, `DB_HOST_PORT` o `FRONTEND_HOST_PORT` ya los publica el contenedor de **otro** proyecto, o los escucha un proceso ajeno (antes de bajar nada). **Avisa** (`::warning::`) si el backup de este repo cae a menos de 10 min del de otro |
+| **Alta de un proyecto nuevo** | `bash scripts/chequear-host.sh libre` | Imprime el próximo horario de backup libre y la línea lista para `scripts/crontab` |
+| **A demanda** | `docker ps --format 'table {{.Names}}	{{.Ports}}'` y `crontab -l` | Ver el mapa completo (también en el catálogo de `inspecciona`, §6) |
+
+"Otro proyecto" es todo contenedor cuyo nombre no empieza con `$PROJECT_PREFIX-`; por eso el
+prefijo del contrato (`docker-compose-recipes.md` §0.1) es obligatorio. Un redeploy del mismo
+proyecto no cuenta como conflicto: vuelve a tomar su propio puerto. El horario solo avisa y no
+falla el deploy: un choque de minutos es una molestia, un puerto repetido es una caída.
 
 **Avisos.** Un backup que falla en silencio no es un backup (un proyecto estuvo meses sin
 respaldo y nadie lo supo). Dos piezas, ambas en la plantilla de `crontab`:
