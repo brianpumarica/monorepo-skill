@@ -296,6 +296,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Copiar [`references/rotar-secretos.sh`](./references/rotar-secretos.sh) a `scripts/rotar-secretos.sh` (rotación de `JWT_SECRET` y de la clave de la base, ci-cd §5.2).
 - [ ] Copiar [`references/backup.sh`](./references/backup.sh) a `scripts/backup.sh` (ajustando solo las 4 variables de arriba) y [`references/crontab`](./references/crontab) a `scripts/crontab` (con el nombre del repo y el siguiente minuto libre a partir de las 03:00). El deploy instala el cron solo (§2.3 de `ci-cd-deployment-pipeline.md`); no se usa `crontab -e`.
 - [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
+- [ ] Instalar **una vez por servidor** [`tunel-agregar.sh`](./references/tunel-agregar.sh) (instrucciones y por qué no es un script del repo en CI/CD §2.6); el deploy registra solo la ruta del Tunnel.
 - [ ] Copiar [`references/chequear-host.sh`](./references/chequear-host.sh) a `scripts/chequear-host.sh`, agregar su paso al `deploy.yml` (justo después del `.env`) y elegir el horario del backup con `bash scripts/chequear-host.sh libre`: el servidor es el registro de puertos y horarios, no un archivo (ci-cd §2.4).
 - [ ] Copiar [`references/verificar-backup.sh`](./references/verificar-backup.sh) a `scripts/` e instalar **una vez por servidor** [`avisar.sh`](./references/avisar.sh): así un backup fallido o atrasado avisa en lugar de callar (ci-cd §2.3).
 - [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.
@@ -336,6 +337,7 @@ Para plantillas de código listas para usar:
 - [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
 - [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
+- [`tunel-agregar.sh`](./references/tunel-agregar.sh) — registra la ruta del Cloudflare Tunnel de un proyecto desde el deploy, con un script de `root` instalado una vez en el servidor (CI/CD §2.6)
 - [`alta-proyecto.sh`](./references/alta-proyecto.sh) — el alta de un proyecto nuevo **desde la consola** (organización del runner, proyecto de Vercel, Root Directory y secrets), con modo `--simular`; el recorrido completo está en CI/CD §3.1
 - [Puertos: tu máquina y el servidor](./references/puertos.md) — **un solo mapa** de `puerto.sh` (desarrollo) y `chequear-host.sh` (servidor): qué hace cada uno, cuándo, y el orden del alta de un proyecto
 - [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido

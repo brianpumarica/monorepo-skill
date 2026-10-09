@@ -184,6 +184,18 @@ jobs:
             --filter "label=com.proyecto=${PROJECT_PREFIX:-app}" \
             --filter "until=720h"
 
+      # La ruta publica del Tunnel la registra un script de root instalado UNA vez en el servidor
+      # (§2.6), no un script del repo: sudoers lo permite solo a el, y no cambia con un push.
+      - name: Register Cloudflare Tunnel route
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          if [ -x /usr/local/sbin/tunel-agregar ]; then
+            sudo -n /usr/local/sbin/tunel-agregar "$REPO_NAME"
+          else
+            echo "ℹ️ Sin tunel-agregar en este servidor: la ruta del Tunnel va a mano (§3.1 Fase B)."
+          fi
+
       # El cron vive versionado en scripts/crontab (plantilla: references/crontab): se
       # reemplazan solo las lineas de este proyecto en el crontab del usuario del runner y el
       # resto queda intacto. Va al final para que un deploy fallido (con rollback) no deje un
@@ -346,6 +358,46 @@ sudo nano /home/github-runner/avisar.env      # AVISO_URL=https://...
 sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 ```
 
+### 2.6 Ruta del Tunnel: la registra el servidor, no el repo
+
+Agregar `api-<repo>.<dominio>` al `config.yml` de `cloudflared` requiere `root`, y el deploy corre
+como `github-runner`. La salida "obvia" —un `sudoers` que deje correr el `scripts/tunel.sh` del
+repo— es **insegura**: quien pueda hacer push a ese repo edita el script y obtiene `root`. En su
+lugar, [`tunel-agregar.sh`](./tunel-agregar.sh) se instala **una vez** en el servidor
+(`/usr/local/sbin/tunel-agregar`, dueño `root`, fuera de todo repo) y el deploy solo le pasa el
+**nombre del repo**:
+
+- el dominio sale de `/etc/tunel-agregar.conf` (root), no del llamador;
+- el puerto sale del `.env` del proyecto, y **tiene que estar publicado por un contenedor
+  `<PROJECT_PREFIX>-*` en marcha** (no se enruta a un puerto cualquiera);
+- solo toca entradas con su marcador `(tunel-agregar)`; las que escribiste a mano no se modifican
+  ni se quitan;
+- es idempotente: si la ruta ya está con el mismo puerto **no hace nada, ni reinicia** (el reinicio
+  de `cloudflared` corta unos segundos a todos los proyectos);
+- valida con `ingress validate` **antes** de reemplazar, guarda copia (`config.yml.bak-*`, las 10
+  últimas) y, si `cloudflared` no queda activo tras reiniciar, **restaura** la copia.
+
+> [!NOTE]
+> Honestidad sobre el alcance: `github-runner` ya pertenece al grupo `docker`, que equivale a
+> `root` sobre ese host. Estas validaciones no son un límite contra un runner comprometido; son
+> defensa en profundidad y evitan errores (puerto equivocado, entrada pisada). Lo que el diseño
+> **sí** evita es sumar un camino a `root` a través de un archivo que cualquier push puede cambiar.
+
+**Instalación, una vez por servidor** (el script se toma de la skill o de la copia que traiga el
+workspace de cualquier repo; `cert.pem` es el certificado de `cloudflared tunnel login`):
+
+```bash
+sudo install -o root -g root -m 755 tunel-agregar.sh /usr/local/sbin/tunel-agregar
+printf 'DOMINIO=<tu-dominio>\nTUNEL=<nombre-del-tunel>\nORIGINCERT=/home/<usuario>/.cloudflared/cert.pem\n' | sudo tee /etc/tunel-agregar.conf >/dev/null
+echo 'github-runner ALL=(root) NOPASSWD: /usr/local/sbin/tunel-agregar' | sudo tee /etc/sudoers.d/tunel-agregar >/dev/null
+sudo chmod 440 /etc/sudoers.d/tunel-agregar && sudo visudo -c
+```
+
+Uso a mano (también para probar): `sudo tunel-agregar <repo>` y `sudo tunel-agregar --quitar <repo>`.
+Quitar una ruta **no borra el CNAME** de DNS (`cloudflared` no tiene un comando para eso): se borra
+en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él, la ruta queda en el
+`config.yml` y el script avisa que falta crear el CNAME.
+
 ---
 
 ## 3. Vercel CLI Strategy & Monorepo Gotchas
@@ -451,7 +503,9 @@ del Tunnel.
 3. **Horario del backup**: si el repo trae `scripts/crontab`, elegir la franja libre con
    `sudo -u github-runner bash …/scripts/chequear-host.sh libre` y ponerla en la línea del crontab
    ([`puertos.md`](./puertos.md) §2).
-4. **Configurar Cloudflare Tunnel para el Backend**:
+4. **Ruta del Tunnel para el Backend.** Si el servidor tiene `tunel-agregar` instalado (§2.6), **el
+   deploy la registra solo** (paso "Register Cloudflare Tunnel route", con el puerto del `.env`) y
+   no hay nada que hacer. A mano, solo en un servidor sin él:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
    - hostname: api-<proyecto>.<dominio>
