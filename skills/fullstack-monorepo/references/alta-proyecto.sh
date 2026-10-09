@@ -8,6 +8,7 @@
 #   alta-proyecto.sh                  # ejecuta los pasos 1 a 3, pidiendo confirmacion antes de CADA
 #                                     # accion que sale de tu maquina
 #   alta-proyecto.sh --paso 1 --paso 3   # solo esos pasos (1 = organizacion, 2 = Vercel, 3 = secrets)
+#   alta-proyecto.sh --verificar      # comprueba la configuracion y el token SIN mostrarlo
 #
 # Configuracion (nunca va en un repo publico). Se escribe UNA vez en un archivo personal:
 #   ~/.config/alta-proyecto.env      (o la ruta de ALTA_CONFIG)
@@ -34,12 +35,14 @@
 set -uo pipefail
 
 SIMULAR=0
+VERIFICAR=0
 PASOS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --simular) SIMULAR=1 ;;
+    --verificar) VERIFICAR=1 ;;
     --paso) shift; PASOS="$PASOS ${1:-}" ;;
-    *) echo "Uso: alta-proyecto.sh [--simular] [--paso 1|2|3]..." >&2; exit 1 ;;
+    *) echo "Uso: alta-proyecto.sh [--simular|--verificar] [--paso 1|2|3]..." >&2; exit 1 ;;
   esac
   shift
 done
@@ -59,6 +62,27 @@ if [ -f "$CONFIG" ]; then
 fi
 FRONTEND_DIR=${FRONTEND_DIR:-frontend}
 VERCEL_CMD=${VERCEL_CMD:-npx --yes vercel@latest}
+
+# --verificar: ¿esta bien la configuracion? Nunca imprime el token: solo su largo y si Vercel lo acepta.
+if [ "$VERIFICAR" -eq 1 ]; then
+  echo "Configuracion: $CONFIG"
+  if [ -f "$CONFIG" ]; then echo "   ✅ el archivo existe"; else echo "   ❌ no existe (ver la cabecera del script para crearlo)"; fi
+  [ -n "${ORG_RUNNER:-}" ] && echo "   ✅ ORG_RUNNER = $ORG_RUNNER" || echo "   ❌ falta ORG_RUNNER"
+  [ -n "${DOMINIO:-}" ] && echo "   ✅ DOMINIO = $DOMINIO" || echo "   ❌ falta DOMINIO"
+  if [ -z "${VERCEL_TOKEN:-}" ]; then
+    echo "   ❌ falta VERCEL_TOKEN"
+  else
+    echo "   VERCEL_TOKEN: ${#VERCEL_TOKEN} caracteres$(case "$VERCEL_TOKEN" in *' '*) echo ', ⚠️  contiene espacios: no parece un token' ;; esac)"
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" https://api.vercel.com/v2/user || true)
+    case "$code" in
+      200) echo "   ✅ Vercel acepta el token" ;;
+      401 | 403) echo "   ❌ Vercel RECHAZA el token (HTTP $code): esta mal pegado, vencio o fue revocado" ;;
+      *) echo "   ⚠️  No se pudo comprobar con Vercel (HTTP ${code:-sin respuesta})" ;;
+    esac
+  fi
+  command -v gh >/dev/null && gh auth status >/dev/null 2>&1 && echo "   ✅ gh con sesion" || echo "   ❌ gh sin sesion"
+  exit 0
+fi
 
 die() { echo "❌ $*" >&2; exit 1; }
 paso() { echo; echo "━━ $* ━━"; }
