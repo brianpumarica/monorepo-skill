@@ -285,6 +285,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Confirmar que el repositorio está **bajo la organización dueña del runner**.
 - [ ] Copiar [`references/crear-env.sh`](./references/crear-env.sh) a `scripts/crear-env.sh` y dejar vacías en `.env.example` las `*_SECRET` y `*_PASSWORD`.
 - [ ] Crear el `.env` del servidor con `sudo bash scripts/crear-env.sh`: genera los secretos y lo deja en su **carpeta por repositorio** (`/home/github-runner/env-backups/<repo>/.env`, `600`, dueño `github-runner`; verificar con `sudo`).
+- [ ] Copiar [`references/rotar-secretos.sh`](./references/rotar-secretos.sh) a `scripts/rotar-secretos.sh` (rotación de `JWT_SECRET` y de la clave de la base, ci-cd §5.2).
 - [ ] Copiar [`references/backup.sh`](./references/backup.sh) a `scripts/backup.sh` (ajustando solo las 4 variables de arriba) y [`references/crontab`](./references/crontab) a `scripts/crontab` (con el nombre del repo y el siguiente minuto libre a partir de las 03:00). El deploy instala el cron solo (§2.3 de `ci-cd-deployment-pipeline.md`); no se usa `crontab -e`.
 - [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
 - [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.

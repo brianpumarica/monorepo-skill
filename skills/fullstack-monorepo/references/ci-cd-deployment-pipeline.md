@@ -548,6 +548,12 @@ sudo wc -l /home/github-runner/env-backups/$REPO/.env
 El workflow deriva la ruta de `${{ github.event.repository.name }}`, así que el YAML es idéntico
 en todos los proyectos y no hay nada que editar por repo.
 
+**Rotar secretos** (`JWT_SECRET`, clave de la base): `sudo bash scripts/rotar-secretos.sh {jwt|db|all}`
+(plantilla en [`rotar-secretos.sh`](./rotar-secretos.sh)). Prepara el `.env` nuevo aparte, hace el
+`ALTER USER` primero y recién si funcionó reemplaza el `.env` — al revés, un fallo en el medio deja
+al backend afuera de su propia base. No imprime secretos ni reinicia nada: después hay que volver
+a correr el deploy. Rotar `JWT_SECRET` cierra todas las sesiones abiertas.
+
 > **Migración desde el layout viejo** (un `.env` suelto en `env-backups/`): mover el archivo a su
 > carpeta, desplegar una vez para confirmar, y recién ahí borrar el original.
 
