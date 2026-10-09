@@ -161,6 +161,7 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | **Imagen con `entrypoint.sh` que llama a `pg_isready` sin `postgresql-client` instalado** | **AGREGAR `postgresql-client` a la etapa `base`.** El binario no viene en `node:*-alpine` ni en `python:*-slim`: el arranque agota los reintentos y el log culpa a la base de un paquete faltante. |
 | **Entrypoint con rutas relativas al `WORKDIR`** en un monorepo | **ANCLAR a la ubicación del script** (`APP_DIR` derivado de la ruta del propio script). Con `WORKDIR /app` y la app en `/app/apps/api`, ningún `if` matchea: migraciones y seed se saltean **en silencio**. |
 | Cualquier `\|\| true` en el build (`cp`, `tsc`, `prisma generate`) | **QUITARLO.** Convierte un build roto en una imagen incompleta que sólo se descubre como crash-loop, semanas después. |
+| Puertos de desarrollo genéricos (3000, 5173, 8080…) en una máquina con varios proyectos, o un servidor de desarrollo que se mueve solo al puerto siguiente | **ASIGNAR un bloque fijo con `puerto asignar`** y puerto explícito/`strictPort` en el servidor (`docker-compose-recipes.md` §0.2). Sin eso, el proyecto levanta en un puerto inesperado y nadie sabe cuál. |
 | Compose de **producción** publicando puertos en todas las interfaces (`"5432:5432"`, `"3004:3004"`) | **ATAR a `127.0.0.1`** (`docker-compose-recipes.md` §4.9) —la base, el backend y el frontend de contenedor—. Publicar en `0.0.0.0` expone el servicio a la red local salteando Cloudflare Access. Verificar antes que el Tunnel entre por `localhost`. |
 | Recetas pnpm/workspaces aplicadas a un repo con `package-lock.json` | **USAR LOS COMANDOS DEL LOCKFILE** (`dockerfile-recipes.md` §0). Migrar de gestor de paquetes —o de layout— sin pedido explícito es ruido, no cumplimiento. |
 | Nombres genéricos de contenedor, imagen o volumen (`database`, `pgdata`, `backend`) en un host compartido | **PREFIJAR POR PROYECTO.** Los nombres de Docker son un espacio compartido en todo el host: dos proyectos que elijan `database` se pisan, y el segundo en desplegar gana sin avisar (`docker-compose-recipes.md` §0.1). |
@@ -268,6 +269,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 
 ### Fase 2: Orquestación Docker Compose
 - [ ] Consolidar stack de desarrollo en `docker-compose.yml` (dev-first con cero flags).
+- [ ] Asignar los puertos de desarrollo con `puerto asignar` ([`references/puerto.sh`](./references/puerto.sh), instalado una vez en la máquina) y fijar `strictPort` / puerto explícito en los servidores de desarrollo (`docker-compose-recipes.md` §0.2).
 - [ ] Eliminar cualquier archivo legacy redundante (`docker-compose.dev.yml`).
 - [ ] Generar `docker-compose.prod.yml` con imágenes de producción, healthchecks y reinicio `unless-stopped`.
 - [ ] Sincronizar `.env.example`: toda variable referenciada en los compose tiene que estar documentada ahí, incluida `HEALTH_PATH`.

@@ -101,6 +101,60 @@ docker ps -a --format 'table {{.Names}}\t{{.Ports}}'
 docker volume ls
 ```
 
+### 0.2 Puertos en la máquina de desarrollo: uno fijo por proyecto
+
+En una máquina donde se crean muchos proyectos de prueba, el 3000 / 5173 / 8080 de los tutoriales
+choca siempre, y lo peor no es el error: es que **Vite y Next se mueven solos al puerto
+siguiente** sin avisar, y el proyecto "levanta" en un lugar que nadie esperaba. Hay que hablarle
+a otra persona (o a un agente) para saber dónde quedó.
+
+La solución es que cada proyecto tenga **siempre el mismo bloque de 10 puertos** y que ningún
+servidor de desarrollo se mueva por su cuenta. [`puerto.sh`](./puerto.sh) lo asigna:
+
+```bash
+# Una sola vez por máquina (no por repo). En Git Bash, ~/bin ya suele estar en el PATH:
+cp puerto.sh ~/bin/puerto && chmod +x ~/bin/puerto
+
+# En la carpeta de cada proyecto nuevo, la primera vez:
+puerto asignar            # escribe FRONTEND/BACKEND/DB en el .env, siempre los mismos
+puerto listar             # todos tus proyectos, sus puertos y cuáles están corriendo AHORA
+puerto quien 4661         # de quién es ese puerto
+```
+
+El bloque sale del nombre de la carpeta (rango 4000-4999, lejos de los puertos de los tutoriales)
+y se anota en `~/.puertos`, **fuera de todo repositorio**. Si dos nombres caen en el mismo
+bloque, el segundo recibe el siguiente libre y queda registrado: nunca se pisan.
+
+| Puerto | Variables que escribe en el `.env` |
+| :--- | :--- |
+| bloque + 0 | `FRONTEND_HOST_PORT` y `FRONTEND_PORT` |
+| bloque + 1 | `BACKEND_HOST_PORT` y `PORT` |
+| bloque + 2 | `DB_HOST_PORT` |
+
+**El mismo número por fuera y por dentro del contenedor** (`4661:4661`) es lo que permite usar
+los dos modos con un solo `.env`: `docker compose up` publica `${BACKEND_HOST_PORT}:${PORT}`, y
+`npm run dev` directo escucha en `PORT`. Para una base en Docker con la app corriendo fuera,
+`DATABASE_URL` apunta a `localhost:${DB_HOST_PORT}`.
+
+Para que un servidor **falle en vez de moverse**, el puerto tiene que ser explícito y estricto:
+
+```ts
+// vite.config.ts — loadEnv lee el .env de la carpeta que se le indica ('..' = raíz del monorepo)
+import { defineConfig, loadEnv } from 'vite'
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '..', '')
+  return { server: { port: Number(env.FRONTEND_HOST_PORT) || 5173, strictPort: true } }
+})
+```
+
+Un backend Node/Express/Nest que hace `listen(process.env.PORT)` ya falla con `EADDRINUSE` si
+está ocupado, sin moverse. En frameworks que aceptan `--port`/`-p`, indicarlo explícitamente
+produce el mismo efecto.
+
+> `puerto.sh` es para **desarrollo local**. El servidor usa [`chequear-host.sh`](./chequear-host.sh)
+> (CI/CD §2.4) y los puertos de su propio `.env`; el `.env` local está en `.gitignore` y nunca
+> viaja, así que ambos mundos no se pisan.
+
 El `context` y el `dockerfile` de cada servicio dependen del layout del repo, que es un eje
 aparte: está en el §0 de [`dockerfile-recipes.md`](./dockerfile-recipes.md).
 
