@@ -216,25 +216,28 @@ jobs:
 
       - name: Pull Vercel Environment Information
         run: |
-          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          vercel pull --yes --environment=production
           if [ -f .vercel/.env.production.local ]; then
             cp .vercel/.env.production.local apps/web/.env.production.local 2>/dev/null || cp .vercel/.env.production.local frontend/.env.production.local 2>/dev/null || true
           fi
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Build Project Artifacts
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
 
       - name: Deploy Prebuilt Artifacts to Vercel
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
@@ -246,6 +249,13 @@ jobs:
 > copiarlos tal cual del `.env`/compose reales del proyecto, no asumirlos. Y sin `healthcheck`
 > nativo en el servicio (§4.6 de [`docker-compose-recipes.md`](./docker-compose-recipes.md)), el
 > loop de espera no espera nada: falla por carrera, no por bug real.
+
+> **Secretos siempre por `env:`, nunca dentro de `run:`.** Con `--token=${{ secrets.X }}` GitHub
+> pega el valor en el texto del script *antes* de que el shell lo lea: una comilla, un `$` o un
+> `|` en el secreto rompe el comando (o lo reinterpreta). Por `env:` llega como variable de
+> entorno y el shell nunca lo parsea. La Vercel CLI lee `VERCEL_TOKEN` del entorno sola, por eso
+> los pasos de arriba no llevan `--token`. En el resto de los pasos, el mismo criterio: valor en
+> `env:`, y en el script `"$VARIABLE"` entre comillas.
 
 > **Validaciones antes del deploy.** Si el repositorio tiene lint, tests o type-check, van en un
 > job propio y los jobs de despliegue lo declaran en `needs:`. Un job de validación que corre en

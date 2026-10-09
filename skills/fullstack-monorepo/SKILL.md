@@ -28,13 +28,17 @@ host. Se piden como argumento al invocarla (`/fullstack-monorepo analiza`) o en 
 
 ### Chequeos de coherencia de `analiza`
 
-Desvíos que no se ven leyendo un archivo solo: hay que cruzar dos. Son baratos y los tres
-aparecieron como fallas reales de despliegue.
+Desvíos que no se ven leyendo un archivo solo: hay que cruzar dos. Son baratos y todos
+aparecieron como fallas reales de despliegue. El del `.env` compara el `deploy.yml` de cada repo
+contra el paso canónico de [CI/CD §2](./references/ci-cd-deployment-pipeline.md): un repo que se
+desvió de la plantilla no avisa, simplemente despliega distinto.
 
 | Chequeo | Cómo | Qué evita |
 | :--- | :--- | :--- |
 | **Variables sin documentar** | Toda variable referenciada en `docker-compose*.yml` existe en `.env.example` | Que la falta se descubra recién en el servidor, cuando `${VAR:?}` aborta el arranque |
 | **Ruta de salud coherente** | `HEALTH_PATH` del `.env`, el `healthcheck.test` del compose de prod y el smoke test del workflow dicen lo mismo | Un 404 que falla el job sobre un despliegue sano ([CI/CD §9.3](./references/ci-cd-deployment-pipeline.md)) |
+| **Paso del `.env` canónico** | En el `deploy.yml`: el `.env` se copia **solo** de `env-backups/<repo>/.env` y el job falla si no está; sin fallback a `.env.example`; hay `REQUIRED_SECRETS` que compara contra la plantilla. Rápido: `grep -n -e env-backups -e '\.env\.example' -e REQUIRED_SECRETS .github/workflows/deploy.yml`, y buscar `cp .env.example`, `[ -f .env ]` o un `cp` a `.env` que no venga del almacén | Producción con credenciales públicas del repo, o con un `.env` viejo del workspace (CI/CD §2) |
+| **Secretos por `env:`** | `grep -nE -e 'run:.*secrets\.' -e '--[a-z-]+=.*secrets\.' .github/workflows/deploy.yml` no devuelve nada | Un secreto con comillas o `\|` que rompe el script |
 | **Imágenes base multi-arquitectura** | Toda imagen base publica manifiesto `linux/arm64` | Un build que anda en la máquina de desarrollo y explota en el Pi |
 
 ### Flujo recomendado
@@ -144,6 +148,7 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Workflow de deploy que termina en `docker compose ps` | **AGREGAR verificación post-deploy** (contenedores `healthy` + smoke test al endpoint de salud) y hacer fallar el job si no pasa. |
 | Imagen de producción etiquetada sólo como `:latest` | **TAGUEAR por commit** (`IMAGE_TAG: ${{ github.sha }}`) y **agregar rollback**: si la verificación falla, re-levantar el tag anterior y recién ahí fallar el job. Con `:latest` no hay a dónde volver y el contenedor roto se queda sirviendo tráfico (CI/CD §2.1). |
 | Workflow sin `timeout-minutes` | **AGREGARLO** (30 min para el build ARM). En un runner self-hosted único, un job colgado bloquea a todos los proyectos del host hasta el default de 6 h. |
+| `${{ secrets.X }}` dentro de un bloque `run:` (p. ej. `--token=${{ secrets.VERCEL_TOKEN }}`) | **PASARLO POR `env:`** y usar `"$VARIABLE"` en el script (CI/CD §2). Interpolado en `run:`, un valor con comillas, `$` o `|` rompe el comando. |
 | Workflow sin bloque `permissions:` | **AGREGAR `permissions: contents: read`.** El `GITHUB_TOKEN` no necesita escritura para desplegar. |
 | Deploy que corre migraciones sin volcado previo | **AGREGAR `pg_dump` antes del `up`**, en `backups/<repo>/pre-deploy/` y con retención de los últimos 7. El entrypoint migra al arrancar: después del `up` ya es tarde. |
 | Imágenes de producción sin etiqueta de proyecto | **AGREGAR `build.labels` con `com.proyecto`** (`docker-compose-recipes.md` §4.8). Es lo único que habilita una poda acotada: sin eso, o se prohíbe podar y el disco se llena, o se poda de más y se rompe a los vecinos. |
@@ -195,7 +200,7 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 │   └── init-db.sql              # Extensiones y esquema inicial de base de datos
 ├── .dockerignore                # Reglas centralizadas de exclusión
 ├── .env.example                 # Plantilla documentada sin secretos reales
-├── .gitattributes               # Forzado de saltos LF para scripts Linux (*.sh, *.sql)
+├── .gitattributes               # Forzado de saltos LF para scripts Linux (*.sh, *.sql, crontab)
 ├── .gitignore                   # Ignorados exhaustivos (Node, Docker, Vercel, Turbo)
 ├── AGENTS.md                    # Matriz de puertos y directrices para agentes IA
 ├── docker-compose.yml           # DEV-FIRST por defecto (DB + Back Dev + Front Dev)
@@ -255,7 +260,7 @@ pero es invisible para `context: ./backend`.
 Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`), el agente DEBE ejecutar ordenadamente:
 
 ### Fase 1: Normalización de Raíz
-- [ ] Crear `.gitattributes` con `*.sh text eol=lf`, `*.sql text eol=lf`, `Dockerfile* text eol=lf`.
+- [ ] Crear `.gitattributes` con `*.sh text eol=lf`, `*.sql text eol=lf`, `Dockerfile* text eol=lf` y `crontab text eol=lf` (bloque completo en `database-lifecycle.md` §3). En un repo existente, `git add --renormalize .`.
 - [ ] Crear `.dockerignore` raíz y `.dockerignore` en backend.
 - [ ] Actualizar `.gitignore` para monorrepos (Vercel, Turbo, logs, data).
 - [ ] Crear `package.json` raíz con scripts de orquestación (`docker:dev`, `docker:prod`, `docker:down`, `docker:logs`).

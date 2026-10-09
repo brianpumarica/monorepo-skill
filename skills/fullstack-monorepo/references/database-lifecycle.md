@@ -201,7 +201,14 @@ Always include `.gitattributes` at the monorepo root to prevent Windows CRLF iss
 *.sh text eol=lf
 *.sql text eol=lf
 Dockerfile* text eol=lf
+crontab text eol=lf
 ```
+
+`crontab` cubre `scripts/crontab`, que el deploy instala tal cual en el servidor. Los `scripts/*.sh`
+(`backup.sh`, `crear-env.sh`, `rotar-secretos.sh`, `verificar-backup.sh`) y el `crontab` se
+ejecutan en Linux: con `core.autocrlf=true` en Windows, una edición los deja en CRLF y fallan en
+silencio (`bad interpreter: /bin/bash^M`, o una línea de cron que nunca matchea). Un repo ya
+existente necesita además `git add --renormalize .` (ver §4).
 ---
 
 ## 4. Script de Inicialización de la Base (`docker/init-db.sql`)
