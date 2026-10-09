@@ -9,15 +9,22 @@
 #                                     # accion que sale de tu maquina
 #   alta-proyecto.sh --paso 1 --paso 3   # solo esos pasos (1 = organizacion, 2 = Vercel, 3 = secrets)
 #
-# Variables (nunca van en un repo publico; exportarlas en tu shell o en ~/.bashrc):
-#   ORG_RUNNER   organizacion duena del runner self-hosted           (obligatoria)
-#   DOMINIO      dominio publico de los proyectos, ej. midominio.com  (obligatoria)
-#   VERCEL_TOKEN token de Vercel. Es el MISMO para todos los proyectos: guardarlo UNA vez como
-#                variable de entorno de tu usuario y el script lo carga como secret de cada repo
-#                nuevo. En Windows (PowerShell), con entrada oculta, sin historial:
-#                  $t = Read-Host "Token de Vercel" -AsSecureString; [Environment]::SetEnvironmentVariable('VERCEL_TOKEN', [System.Net.NetworkCredential]::new('', $t).Password, 'User')
-#                (abrir una terminal nueva despues). En Linux/macOS: exportarlo desde un archivo
-#                de permisos 600, nunca escrito en el comando.
+# Configuracion (nunca va en un repo publico). Se escribe UNA vez en un archivo personal:
+#   ~/.config/alta-proyecto.env      (o la ruta de ALTA_CONFIG)
+#     ORG_RUNNER=<organizacion duena del runner self-hosted>        (obligatoria)
+#     DOMINIO=<dominio publico de tus proyectos, ej. midominio.com>  (obligatoria)
+#     VERCEL_TOKEN=<token de Vercel>   MISMO para todos los proyectos; el script lo carga como
+#                                      secret de cada repo nuevo (obligatoria para el paso 3)
+#     FRONTEND_DIR=frontend            (opcional)
+# Lo ya exportado en la terminal tiene prioridad. Solo se leen esas claves; el archivo no se
+# ejecuta. Crearlo (pide el token oculto, no queda en el historial; en Git Bash):
+#   mkdir -p ~/.config && printf 'ORG_RUNNER=mi-organizacion\nDOMINIO=midominio.com\n' > ~/.config/alta-proyecto.env \
+#     && read -rsp "Token de Vercel: " t && printf '\nVERCEL_TOKEN=%s\n' "$t" >> ~/.config/alta-proyecto.env \
+#     && chmod 600 ~/.config/alta-proyecto.env; unset t
+# Por que un archivo y no una variable de entorno de usuario: la variable la heredan todos los
+# procesos que lanzas (cada `npm run dev`, cada script de un paquete de terceros); el archivo solo
+# lo lee este script.
+#   VERCEL_CMD   como llamar a la CLI de Vercel (default: npx --yes vercel@latest)
 #
 # Por que NO un secret de la organizacion: en el plan Free de GitHub, los secrets de organizacion
 # no llegan a los repos PRIVADOS (aparecen listados pero el job los recibe vacios). Verificado
@@ -37,6 +44,19 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$PASOS" ] || PASOS="1 2 3"
+
+# Configuracion personal, FUERA de todo repo: ORG_RUNNER, DOMINIO, VERCEL_TOKEN (y FRONTEND_DIR).
+# Se lee solo esas claves (el archivo no se ejecuta) y lo ya exportado en la terminal tiene
+# prioridad. Crearlo una vez, con el token por entrada oculta (ver la cabecera).
+CONFIG=${ALTA_CONFIG:-$HOME/.config/alta-proyecto.env}
+if [ -f "$CONFIG" ]; then
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    v=${v%$'\r'}; v=${v#\"}; v=${v%\"}; v=${v#\'}; v=${v%\'}
+    case "$k" in
+      ORG_RUNNER | DOMINIO | VERCEL_TOKEN | FRONTEND_DIR) [ -n "${!k:-}" ] || export "$k=$v" ;;
+    esac
+  done < "$CONFIG"
+fi
 FRONTEND_DIR=${FRONTEND_DIR:-frontend}
 VERCEL_CMD=${VERCEL_CMD:-npx --yes vercel@latest}
 

@@ -365,7 +365,7 @@ sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 
 > [!IMPORTANT]
 > `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez (el
-> token, como variable de entorno de tu usuario; **no** como secret de organización, pitfall 14) y se
+> token, en tu archivo de configuración personal; **no** como secret de organización, pitfall 14) y se
 > reusan entre repos. `VERCEL_PROJECT_ID` y la URL pública son **por repositorio** — antes de
 > cargar un `VERCEL_PROJECT_ID` guardado, confirmarlo contra `Settings → General → Project ID`
 > del proyecto real (una cuenta puede tener varios proyectos; uno equivocado no da un error claro,
@@ -387,15 +387,14 @@ del Tunnel.
 | :--- | :--- |
 | `gh` con sesión | `gh auth login` |
 | CLI de Vercel con sesión | `npx vercel login` (abre el navegador; no se instala nada global) |
-| Token de Vercel como variable de entorno **de tu usuario** | Crearlo en [vercel.com/account/tokens](https://vercel.com/account/tokens) y guardarlo con entrada oculta (comando en la cabecera de [`alta-proyecto.sh`](./alta-proyecto.sh)). Es el mismo para todos los proyectos: así no se vuelve a pegar |
-| `ORG_RUNNER` y `DOMINIO` como variables | La organización dueña del runner y tu dominio público. Nunca en un repositorio público |
+| Un archivo de configuración personal, **fuera de todo repo** | `~/.config/alta-proyecto.env` con `ORG_RUNNER` (la organización dueña del runner), `DOMINIO` (tu dominio público) y `VERCEL_TOKEN`. El token se crea en [vercel.com/account/tokens](https://vercel.com/account/tokens) y es el mismo para todos los proyectos: así no se vuelve a pegar. El comando que lo crea pidiendo el token oculto está en la cabecera de [`alta-proyecto.sh`](./alta-proyecto.sh). Mejor un archivo que una variable de entorno de usuario: la variable la heredan todos los procesos que lanzás, el archivo solo lo lee el script |
 | El script en el `PATH` | `cp alta-proyecto.sh ~/bin/alta-proyecto && chmod +x ~/bin/alta-proyecto` |
 
 > [!WARNING]
 > **No cargar `VERCEL_TOKEN` como secret de la organización.** En el plan Free de GitHub los secrets
 > de organización **no llegan a los repos privados**: figuran en la lista y por API, pero el job los
 > recibe vacíos (`VERCEL_TOKEN:` en blanco → *No existing credentials found*). Va a nivel repo, y
-> `alta-proyecto.sh` lo carga solo desde tu variable de entorno.
+> `alta-proyecto.sh` lo carga solo desde tu archivo de configuración.
 
 #### Fase A: Tu máquina de desarrollo
 
@@ -601,8 +600,8 @@ es la del commit, §8).
   repo (`actions/organization-secrets`) lo muestran como disponible, pero el job lo recibe vacío. No
   hay ningún error que lo explique.
 - **Solution**: cargarlo a nivel repo (`gh secret set VERCEL_TOKEN --repo <org>/<repo>`). Para no
-  repetir el paso en cada proyecto, [`alta-proyecto.sh`](./alta-proyecto.sh) lo toma de la variable
-  de entorno `VERCEL_TOKEN` de tu usuario (§3.1).
+  repetir el paso en cada proyecto, [`alta-proyecto.sh`](./alta-proyecto.sh) lo toma de tu archivo
+  de configuración personal (§3.1).
 - **Cómo confirmarlo**: `gh run view <id> --log` del paso que falla; `VERCEL_TOKEN:` sin valor.
 
 ### 15. Primer Push Antes de Transferir el Repo (Corrida en Cola, Luego Cancelada)
