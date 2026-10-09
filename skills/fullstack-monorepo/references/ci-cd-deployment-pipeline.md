@@ -69,7 +69,7 @@ jobs:
       - name: Load production environment file (.env)
         env:
           ENV_STORE: /home/github-runner/env-backups/${{ github.event.repository.name }}/.env
-          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET"   # ajustar por proyecto
+          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET POSTGRES_PASSWORD"   # ajustar por proyecto
         run: |
           if [ ! -f "$ENV_STORE" ]; then
             echo "❌ No .env found for this repository."
@@ -97,7 +97,7 @@ jobs:
           # del `up`, no después. Sin SSH ni transferencia de archivos, una migración mala
           # sin volcado previo es irreversible.
           set -a; . ./.env; set +a
-          DB="${PROJECT_NAME:-app}-database"
+          DB="${PROJECT_PREFIX:-app}-database"
           # Subcarpeta propia: el backup diario (scripts/backup.sh) comparte la raiz y su
           # rotacion es otra; si compartieran carpeta, `tail -n +8` borraria los diarios.
           BACKUP_DIR="/home/github-runner/backups/${{ github.event.repository.name }}/pre-deploy"
@@ -132,7 +132,7 @@ jobs:
               echo "   El servicio queda caído y requiere intervención manual."
               exit 1
             fi
-            PREV_IMG="${PROJECT_NAME:-app}-backend-prod:$PREVIOUS_TAG"
+            PREV_IMG="${PROJECT_PREFIX:-app}-backend-prod:$PREVIOUS_TAG"
             if ! docker image inspect "$PREV_IMG" >/dev/null 2>&1; then
               echo "❌ La imagen previa $PREV_IMG ya no está en el host: no hay rollback posible."
               exit 1
@@ -161,7 +161,9 @@ jobs:
           # §0) y no se renombran por proyecto: es lo que permite que este YAML sea identico en
           # todos los repositorios. Un sinonimo cae al default y el smoke test prueba un puerto
           # o una ruta que no usa nadie, con el job saliendo verde (o rojo sobre un deploy sano).
-          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-3004}${HEALTH_PATH:-/api/health}" \
+          # BACKEND_PORT queda como respaldo solo para repos que ya lo publican con ese nombre
+          # (el compose de esos repos usa el mismo anidado); un repo nuevo usa BACKEND_HOST_PORT.
+          curl -fsS "http://localhost:${BACKEND_HOST_PORT:-${BACKEND_PORT:-3004}}${HEALTH_PATH:-/api/health}" \
             || { docker compose -f docker-compose.prod.yml logs --tail=80 backend; rollback; }
           echo "✅ Deployment verified."
 
@@ -174,8 +176,21 @@ jobs:
           # proyecto (build.labels, docker-compose-recipes.md §4.8). La imagen recién
           # promovida está en uso y nunca es candidata a poda.
           docker image prune -af \
-            --filter "label=com.proyecto=${PROJECT_NAME:-app}" \
+            --filter "label=com.proyecto=${PROJECT_PREFIX:-app}" \
             --filter "until=720h"
+
+      # El cron vive versionado en scripts/crontab (plantilla: references/crontab): se
+      # reemplazan solo las lineas de este proyecto en el crontab del usuario del runner y el
+      # resto queda intacto. Va al final para que un deploy fallido (con rollback) no deje un
+      # backup apuntando a contenedores que no existen. Ver §2.3.
+      - name: Install project cron
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          mkdir -p "$HOME/backups/$REPO_NAME"
+          { crontab -l 2>/dev/null | grep -v "$REPO_NAME" || true
+            sed "s#__DIR__#$GITHUB_WORKSPACE#g" scripts/crontab; } | crontab -
+          crontab -l | grep "$REPO_NAME"
 
   # ==========================================
   # JOB 2: FRONTEND DEPLOYMENT VIA VERCEL CLI
@@ -227,7 +242,7 @@ jobs:
 ```
 
 > [!WARNING]
-> Nombre de servicio (`backend`), prefijo (`PROJECT_NAME`) y fallback de puerto son placeholders —
+> Nombre de servicio (`backend`), prefijo (`PROJECT_PREFIX`) y fallback de puerto son placeholders —
 > copiarlos tal cual del `.env`/compose reales del proyecto, no asumirlos. Y sin `healthcheck`
 > nativo en el servicio (§4.6 de [`docker-compose-recipes.md`](./docker-compose-recipes.md)), el
 > loop de espera no espera nada: falla por carrera, no por bug real.
@@ -260,6 +275,20 @@ antes borraría justo la imagen anterior que el rollback necesita.
 El respaldo previo a migrar vive en `backups/<repo>/pre-deploy/` (retención: los últimos 7). El
 backup diario de [`backup.sh`](./backup.sh) usa la raíz `backups/<repo>/` con otra rotación
 (`RETENTION_DAYS`). Si compartieran carpeta, el `tail -n +8` del deploy borraría los diarios.
+
+### 2.3 Cron versionado: lo instala el deploy
+
+El cron no se edita con `crontab -e`: vive en `scripts/crontab` del repo (plantilla:
+[`crontab`](./crontab)) y el paso "Install project cron" lo instala en el crontab del usuario
+del runner. Reemplaza solo las líneas que contienen el nombre del repo, así que las de otros
+proyectos quedan intactas; por eso **toda línea del archivo debe contener el nombre del repo**
+(basta con que lo lleve la ruta `__DIR__` o la del log). `__DIR__` lo cambia el deploy por la
+carpeta real del workspace.
+
+El horario del backup se escalona a mano de a 10 minutos desde las 03:00 (un proyecto por
+franja) para que dos `pg_dump` no corran a la vez en la Pi. No hay registro automático: al
+alta de un proyecto nuevo, mirar `crontab -l` del runner y tomar la siguiente franja libre.
+Un deploy fallido no toca el cron (el paso va al final).
 
 ---
 

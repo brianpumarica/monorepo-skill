@@ -38,9 +38,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 | Service | Container Name | Host Port | Internal Port |
 | :--- | :--- | :--- | :--- |
-| **Database** | `[PROJECT_NAME]-database` | `${DB_HOST_PORT:-5432}` | `5432` |
-| **Backend** | `[PROJECT_NAME]-backend-dev` | `${BACKEND_HOST_PORT:-3004}` | `${PORT:-3004}` |
-| **Frontend** | `[PROJECT_NAME]-frontend-dev` | `${FRONTEND_HOST_PORT:-8084}` | `${FRONTEND_PORT:-8084}` |
+| **Database** | `[PROJECT_PREFIX]-database` | `${DB_HOST_PORT:-5432}` | `5432` |
+| **Backend** | `[PROJECT_PREFIX]-backend-dev` | `${BACKEND_HOST_PORT:-3004}` | `${PORT:-3004}` |
+| **Frontend** | `[PROJECT_PREFIX]-frontend-dev` | `${FRONTEND_HOST_PORT:-8084}` | `${FRONTEND_PORT:-8084}` |
 
 ---
 

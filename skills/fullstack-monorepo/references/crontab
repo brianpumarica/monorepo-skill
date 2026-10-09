@@ -1,0 +1,7 @@
+# Plantilla de scripts/crontab. Cada repo la copia y reemplaza <repo> y el minuto.
+# Lo instala el paso "Install project cron" del deploy (ci-cd-deployment-pipeline.md §2.3)
+# en el crontab del usuario del runner, reemplazando las lineas de <repo>. No editar con
+# `crontab -e`: se edita este archivo y se hace push. El deploy cambia el marcador de ruta por
+# la carpeta real. Toda linea tiene que contener el nombre del repo (ruta o log): asi se filtra.
+# Backup diario a las 03:<minuto>. Escalonar de a 10 minutos: 03:00, 03:10, 03:20, ...
+0 3 * * * /bin/bash __DIR__/scripts/backup.sh >> $HOME/backups/<repo>/backup.log 2>&1

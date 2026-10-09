@@ -55,7 +55,7 @@ proyecto (§0.1).
 | `BACKEND_DEV_IMAGE` / `BACKEND_PROD_IMAGE` | `acme-backend-dev` / `acme-backend-prod` |
 | `FRONTEND_DEV_IMAGE` | `acme-frontend-dev` |
 | `VOLUME_PGDATA_DEV_NAME` / `VOLUME_PGDATA_NAME` | `acme_pgdata-dev` / `acme_pgdata` |
-| `PROJECT_NAME` | `acme`: el prefijo del proyecto. El workflow lo lee para el contenedor de la base, la imagen del rollback y la etiqueta `com.proyecto` de la poda |
+| `PROJECT_PREFIX` | `acme`: el prefijo del proyecto. El workflow lo lee para el contenedor de la base, la imagen del rollback y la etiqueta `com.proyecto` de la poda |
 | `IMAGE_TAG` | **No va en el `.env`**: lo fija el workflow al SHA del commit (`github.sha`). El compose lo usa con default `latest` |
 
 > **Los nombres de variable son fijos; los valores llevan el prefijo del proyecto.** Variables
@@ -112,7 +112,7 @@ aparte: está en el §0 de [`dockerfile-recipes.md`](./dockerfile-recipes.md).
 services:
   database:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
-    container_name: ${PROJECT_NAME:-app}-database
+    container_name: ${PROJECT_PREFIX:-app}-database
     restart: unless-stopped
     ports:
       - "${DB_HOST_PORT:-5432}:5432"
@@ -137,7 +137,7 @@ services:
       context: .
       dockerfile: ./apps/api/Dockerfile
       target: development
-    container_name: ${PROJECT_NAME:-app}-backend-dev
+    container_name: ${PROJECT_PREFIX:-app}-backend-dev
     restart: unless-stopped
     ports:
       - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
@@ -171,7 +171,7 @@ services:
       context: .
       dockerfile: ./apps/web/Dockerfile
       target: development
-    container_name: ${PROJECT_NAME:-app}-frontend-dev
+    container_name: ${PROJECT_PREFIX:-app}-frontend-dev
     restart: unless-stopped
     ports:
       - "${FRONTEND_HOST_PORT:-8084}:${FRONTEND_PORT:-8084}"
@@ -194,7 +194,7 @@ services:
 
 volumes:
   pgdata:
-    name: ${PROJECT_NAME:-app}_pgdata
+    name: ${PROJECT_PREFIX:-app}_pgdata
 
 networks:
   app-net:
@@ -215,7 +215,7 @@ networks:
 services:
   database:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
-    container_name: ${PROJECT_NAME:-app}-database
+    container_name: ${PROJECT_PREFIX:-app}-database
     restart: unless-stopped
     # SIN `ports:` a proposito. El backend llega por la red interna `app-net`; publicar 5432
     # en un host compartido expone la base a todo lo que corra en la maquina y colisiona con
@@ -243,10 +243,10 @@ services:
       dockerfile: ./apps/api/Dockerfile
       target: production
       labels:
-        com.proyecto: ${PROJECT_NAME:-app}   # habilita la poda acotada (§4.8)
+        com.proyecto: ${PROJECT_PREFIX:-app}   # habilita la poda acotada (§4.8)
     # Tag por commit: lo fija IMAGE_TAG en el workflow; `latest` sólo para un `up` manual (§4.3).
-    image: ${PROJECT_NAME:-app}-backend-prod:${IMAGE_TAG:-latest}
-    container_name: ${PROJECT_NAME:-app}-backend-prod
+    image: ${PROJECT_PREFIX:-app}-backend-prod:${IMAGE_TAG:-latest}
+    container_name: ${PROJECT_PREFIX:-app}-backend-prod
     restart: unless-stopped
     ports:
       - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
@@ -279,7 +279,7 @@ services:
 
 volumes:
   pgdata:
-    name: ${PROJECT_NAME:-app}_pgdata
+    name: ${PROJECT_PREFIX:-app}_pgdata
 
 networks:
   app-net:
@@ -300,7 +300,7 @@ docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remov
 docker compose -f docker-compose.prod.yml ps
 
 # View live backend logs:
-docker logs -f ${PROJECT_NAME:-app}-backend-prod
+docker logs -f ${PROJECT_PREFIX:-app}-backend-prod
 ```
 
 ---
@@ -349,7 +349,7 @@ Dos problemas distintos que se resuelven en la misma línea:
       target: production
     # dev usa -backend-dev. El tag sale de IMAGE_TAG (el workflow lo fija al SHA del commit);
     # `latest` queda sólo como default para un `up` manual desde el servidor.
-    image: ${PROJECT_NAME:-app}-backend-prod:${IMAGE_TAG:-latest}
+    image: ${PROJECT_PREFIX:-app}-backend-prod:${IMAGE_TAG:-latest}
 ```
 
 > El rollback depende de esta línea. Ver [CI/CD §2.1](./ci-cd-deployment-pipeline.md) para las
@@ -443,7 +443,7 @@ La salida es etiquetar las imágenes en el build, para poder podar **sólo las p
       context: .
       target: production
       labels:
-        com.proyecto: ${PROJECT_NAME:-app}
+        com.proyecto: ${PROJECT_PREFIX:-app}
 ```
 
 Con eso, el paso de poda del workflow ([CI/CD §2](./ci-cd-deployment-pipeline.md)) queda acotado al

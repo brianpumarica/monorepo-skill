@@ -51,7 +51,7 @@ Add the `tunnel` service directly to your production Compose file so it starts a
 services:
   database:
     image: pgvector/pgvector:pg16
-    container_name: ${PROJECT_NAME:-app}-db
+    container_name: ${PROJECT_PREFIX:-app}-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -72,7 +72,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
       target: production
-    container_name: ${PROJECT_NAME:-app}-api
+    container_name: ${PROJECT_PREFIX:-app}-api
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -87,7 +87,7 @@ services:
 
   tunnel:
     image: cloudflare/cloudflared:latest
-    container_name: ${PROJECT_NAME:-app}-tunnel
+    container_name: ${PROJECT_PREFIX:-app}-tunnel
     restart: unless-stopped
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     environment:
