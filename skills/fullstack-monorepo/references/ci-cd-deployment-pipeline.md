@@ -315,7 +315,7 @@ host ya sabe (los puertos que publican los contenedores y el `crontab` del runne
 | :--- | :--- | :--- |
 | **Cada deploy**, justo después de cargar el `.env` | `bash scripts/chequear-host.sh` | **Falla** si `BACKEND_HOST_PORT`, `DB_HOST_PORT` o `FRONTEND_HOST_PORT` ya los publica el contenedor de **otro** proyecto, o los escucha un proceso ajeno (antes de bajar nada). **Avisa** (`::warning::`) si el backup de este repo cae a menos de 10 min del de otro |
 | **Alta de un proyecto nuevo** | `bash scripts/chequear-host.sh libre` | Imprime el próximo horario de backup libre y la línea lista para `scripts/crontab` |
-| **A demanda** | `docker ps --format 'table {{.Names}}	{{.Ports}}'` y `crontab -l` | Ver el mapa completo (también en el catálogo de `inspecciona`, §6) |
+| **A demanda** | `docker ps --format 'table {{.Names}}\t{{.Ports}}'` y `crontab -l` | Ver el mapa completo (también en el catálogo de `inspecciona`, §6) |
 
 "Otro proyecto" es todo contenedor cuyo nombre no empieza con `$PROJECT_PREFIX-`; por eso el
 prefijo del contrato (`docker-compose-recipes.md` §0.1) es obligatorio. Un redeploy del mismo
