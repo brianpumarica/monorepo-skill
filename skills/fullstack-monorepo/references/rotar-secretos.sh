@@ -26,6 +26,10 @@ set -euo pipefail
 modo=${1:-}
 case "$modo" in jwt | db | all) ;; *) echo "Uso: sudo bash scripts/rotar-secretos.sh {jwt|db|all} [repo]"; exit 1 ;; esac
 
+# El script vive en <repo>/scripts/: trabajar siempre desde la raiz del repo, se llame desde donde se
+# llame (el log del deploy imprime la ruta completa para pegarla desde cualquier carpeta).
+raiz=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || true
+if [ -n "${raiz:-}" ] && [ -f "$raiz/.env.example" ]; then cd "$raiz"; fi
 repo=${2:-$(basename "$PWD")}
 base=${ENV_BASE:-/home/github-runner/env-backups}
 owner=${ENV_OWNER-github-runner}   # vacio = no cambiar dueño (para probar sin root)

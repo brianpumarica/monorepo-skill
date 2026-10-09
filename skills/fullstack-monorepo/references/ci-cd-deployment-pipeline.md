@@ -364,7 +364,8 @@ sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 | `SITE_URL` | Frontend canonical URL | e.g. `https://proyecto.vercel.app` (requerido si prerenderiza Open Graph) |
 
 > [!IMPORTANT]
-> `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez y se
+> `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez (el
+> token, como variable de entorno de tu usuario; **no** como secret de organización, pitfall 14) y se
 > reusan entre repos. `VERCEL_PROJECT_ID` y la URL pública son **por repositorio** — antes de
 > cargar un `VERCEL_PROJECT_ID` guardado, confirmarlo contra `Settings → General → Project ID`
 > del proyecto real (una cuenta puede tener varios proyectos; uno equivocado no da un error claro,
@@ -374,63 +375,83 @@ sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 
 ### 3.1 Runbook de Onboarding para un Proyecto Nuevo (Paso a Paso)
 
-Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack nuevo evitando el paywall de organizaciones de Vercel y duplicación de disco en la Raspberry Pi:
+Recorrido **probado de punta a punta** con un proyecto descartable (repo privado en la organización
+del runner → Vercel Hobby → Raspberry Pi): transferencia, enlace de Vercel, secrets, `.env`,
+respaldo previo, build en la Pi, healthcheck, smoke test y publicación del frontend. Lo único que
+sigue siendo manual es lo que **no se puede** hacer desde el repo: los comandos en la Pi y la ruta
+del Tunnel.
 
-#### Fase A: Lado Máquina de Desarrollo (PC Local)
-1. **Crear y vincular el proyecto en Vercel gratis con Vercel CLI**:
-   Desde la raíz del repositorio local en Windows/Mac:
-   ```bash
-   npx vercel link
-   ```
-   Responder a las preguntas interactivas:
-   - *Which scope?* $\rightarrow$ Tu cuenta personal (Hobby)
-   - *Link to existing project?* $\rightarrow$ `no` (o `Create a new project`)
-   - *Project name?* $\rightarrow$ `<nombre-del-proyecto>`
-   - *In which directory is your code located?* $\rightarrow$ `./frontend` (o `./apps/web`)
-   - *Want to modify these settings?* $\rightarrow$ `no`
-   *(Vercel puede emitir un aviso 409 indicando que el repo pertenece a una organización, pero el proyecto queda creado y vinculado igualmente en tu cuenta Hobby)*.
-2. **Obtener IDs del proyecto**:
-   Vercel generará `.vercel/project.json`. Leer `projectId` y `orgId`:
-   ```bash
-   cat .vercel/project.json
-   ```
-3. **Generar Token de Vercel**:
-   Crear un token de acceso personal en [vercel.com/account/tokens](https://vercel.com/account/tokens).
-4. **Cargar los Secrets en GitHub con `gh` CLI**:
-   ```bash
-   echo "<PROJECT_ID>" | gh secret set VERCEL_PROJECT_ID
-   echo "<ORG_ID>" | gh secret set VERCEL_ORG_ID
-   echo "<TOKEN>" | gh secret set VERCEL_TOKEN
-   echo "https://api-<proyecto>.<dominio>" | gh secret set VITE_API_URL
-   echo "https://<proyecto>.vercel.app" | gh secret set SITE_URL
-   ```
+#### Una sola vez por máquina (no por proyecto)
 
-5. **Puertos de desarrollo** (opcional, recomendado): `puerto asignar` en la carpeta del repo
-   deja un bloque fijo de puertos en el `.env` local, con o sin Docker
+| Qué | Cómo |
+| :--- | :--- |
+| `gh` con sesión | `gh auth login` |
+| CLI de Vercel con sesión | `npx vercel login` (abre el navegador; no se instala nada global) |
+| Token de Vercel como variable de entorno **de tu usuario** | Crearlo en [vercel.com/account/tokens](https://vercel.com/account/tokens) y guardarlo con entrada oculta (comando en la cabecera de [`alta-proyecto.sh`](./alta-proyecto.sh)). Es el mismo para todos los proyectos: así no se vuelve a pegar |
+| `ORG_RUNNER` y `DOMINIO` como variables | La organización dueña del runner y tu dominio público. Nunca en un repositorio público |
+| El script en el `PATH` | `cp alta-proyecto.sh ~/bin/alta-proyecto && chmod +x ~/bin/alta-proyecto` |
+
+> [!WARNING]
+> **No cargar `VERCEL_TOKEN` como secret de la organización.** En el plan Free de GitHub los secrets
+> de organización **no llegan a los repos privados**: figuran en la lista y por API, pero el job los
+> recibe vacíos (`VERCEL_TOKEN:` en blanco → *No existing credentials found*). Va a nivel repo, y
+> `alta-proyecto.sh` lo carga solo desde tu variable de entorno.
+
+#### Fase A: Tu máquina de desarrollo
+
+1. **Crear el repo directamente en la organización del runner**, sin hacer push todavía:
+   ```bash
+   gh repo create <org>/<repo> --private --source . --remote origin
+   ```
+   Un repo que nace en la cuenta personal también sirve (el script lo transfiere en el paso
+   siguiente), pero **no hacer el primer push antes de transferir**: la corrida queda en cola sin
+   runner y la transferencia la cancela. *(La prueba real se hizo con el camino de la
+   transferencia; crear el repo directamente en la organización no se corrió, aunque es el
+   comando estándar de `gh` y evita el paso.)*
+2. **Puertos de desarrollo** (opcional, recomendado): `puerto asignar` en la carpeta del repo
    ([`puertos.md`](./puertos.md) §1).
-
-#### Fase B: Lado Servidor (Raspberry Pi 5)
-1. **NO clonar el repositorio en `~/Documents`**:
-   El runner de GitHub autogestiona el workspace en `/home/github-runner/actions-runner/_work/<repo>/<repo>`. Clonar a mano crea código redundante y desperdicia espacio en la tarjeta SD.
-2. **Elegir puertos y horario de backup libres.** Con el repo ya en el workspace (el primer push
-   lo dejó ahí), antes de crear el `.env`:
+3. **Correr el alta.** Empezar siempre por la simulación:
    ```bash
-   sudo -u github-runner bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/chequear-host.sh alta
+   alta-proyecto --simular      # imprime todo, no ejecuta nada
+   alta-proyecto                # pide confirmación antes de cada paso que sale de tu máquina
    ```
-   Imprime `BACKEND_HOST_PORT` / `DB_HOST_PORT` (y `FRONTEND_HOST_PORT`) que nadie usa ni tiene
-   reservados, y el próximo horario libre para la línea de `scripts/crontab`. Se anotan para el
-   paso siguiente y para la ruta del Tunnel (paso 4). Detalle en [`puertos.md`](./puertos.md).
-3. **Crear el `.env` de producción** con un solo comando. El primer deploy falla a propósito en
-   el paso del `.env`, pero el `checkout` ya dejó el repo en el workspace, y el log imprime este
-   comando exacto:
+   Hace, en orden: (1) pasa el repo a la organización si no está; (2) `vercel link` + fija el
+   **Root Directory** del proyecto por `vercel api` (`link --yes` no lo hace y el build corre en la
+   raíz del monorepo); (3) carga como secrets del repo `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`,
+   `VERCEL_TOKEN`, `VITE_API_URL` y `SITE_URL`. Cada paso se puede correr suelto:
+   `alta-proyecto --paso 2`.
+
+   > Vercel imprime un **error 409** al enlazar ("repository is private and owned by an
+   > organization, which is not supported on the Hobby plan"). Es esperado: el proyecto queda creado
+   > y enlazado igual, porque se despliega con la CLI y no con la integración de Git (§3, arriba).
+4. **Primer push**: `git push -u origin HEAD`. Falla **a propósito** en el paso del `.env`, pero el
+   `checkout` deja el repo en el runner y el log imprime el comando del paso siguiente.
+
+#### Fase B: El servidor (Raspberry Pi 5)
+
+1. **NO clonar el repositorio en `~/Documents`**: el runner autogestiona el workspace en
+   `/home/github-runner/actions-runner/_work/<repo>/<repo>`. Clonar a mano duplica código y gasta
+   la tarjeta SD.
+2. **Crear el `.env` de producción** con un solo comando (funciona desde cualquier carpeta):
    ```bash
    sudo bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/crear-env.sh
    ```
-   Genera `JWT_SECRET` (`openssl rand -hex 32`) y toda `*_PASSWORD` vacía en `.env.example`,
-   crea la carpeta y el archivo (`600`, dueño `github-runner`) y lista lo que falta completar a
-   mano (API keys: `sudo nano /home/github-runner/env-backups/<repo>/.env`). Ahí también se
-   escriben los puertos del paso 2 en `BACKEND_HOST_PORT` / `DB_HOST_PORT`. Si el proyecto ya
-   tiene base, el `POSTGRES_PASSWORD` real se copia a mano: la base ya fue creada con esa clave.
+   Genera `JWT_SECRET` y toda `*_PASSWORD` vacía en `.env.example`, **asigna puertos libres** a las
+   `*_HOST_PORT` que están vacías en la plantilla (los mismos que `chequear-host.sh alta`),
+   y deja el archivo en `env-backups/<repo>/.env` (`600`, dueño `github-runner`). Lista lo que falta
+   completar a mano (API keys). Anotar el puerto asignado:
+   `sudo grep BACKEND_HOST_PORT /home/github-runner/env-backups/<repo>/.env`.
+
+   > [!WARNING]
+   > Para editar el `.env` después, `sudo nano` y luego
+   > `sudo chown github-runner:github-runner <ruta>`. **No usar `sudo sed -i`**: recrea el archivo
+   > como `root` y el runner deja de poder leerlo.
+   >
+   > Si el proyecto ya tiene base, el `POSTGRES_PASSWORD` real se copia a mano antes: la base ya
+   > fue creada con esa clave.
+3. **Horario del backup**: si el repo trae `scripts/crontab`, elegir la franja libre con
+   `sudo -u github-runner bash …/scripts/chequear-host.sh libre` y ponerla en la línea del crontab
+   ([`puertos.md`](./puertos.md) §2).
 4. **Configurar Cloudflare Tunnel para el Backend**:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
@@ -452,13 +473,15 @@ Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack
    *(Nota: si estás conectado por la terminal web `terminal.<dominio>`, la conexión WebSocket se cortará por 2 segundos arrojando "Press enter to reconnect". Basta con presionar Enter para reconectar)*.
 
 #### Fase C: Disparar el Despliegue
-Desde la máquina de desarrollo:
+
+Desde la máquina de desarrollo, con `gh` (no hace falta otro push):
 ```bash
-git push origin master
-# O manualmente con gh:
-gh workflow run deploy.yml --ref master
+gh workflow run deploy.yml --ref <rama> && gh run watch
 ```
-El runner en la Pi respaldará la base, compilará y levantará Docker en producción, correrá las migraciones/ingestas y verificará salud. Luego Vercel compilará y publicará el frontend en Edge de inmediato.
+La Pi carga el `.env`, verifica los puertos, respalda la base si existe, construye y levanta Docker,
+espera `healthy` y corre el smoke test (con rollback si falla). Después se publica el frontend en
+Vercel. Confirmar con `curl https://api-<proyecto>.<dominio>/api/health` (la versión que devuelve
+es la del commit, §8).
 
 ---
 
@@ -569,6 +592,32 @@ El runner en la Pi respaldará la base, compilará y levantará Docker en produc
   Resolve-DnsName api-<proyecto>.<dominio> -Server 1.1.1.1
   ```
 - **Solución**: Limpiar la caché local de DNS (`ipconfig /flushdns` en Windows) o esperar de 2 a 5 minutos a que expire el TTL del router local.
+
+### 14. Secret de Organización Vacío en Repos Privados (Plan Free)
+- **Problem**: el job del frontend falla con "Error: No existing credentials found. Please run
+  vercel login or pass --token", y en el log del paso aparece `VERCEL_TOKEN:` en blanco.
+- **Causa**: el token se cargó como secret **de la organización** (`gh secret set --org`). En el plan
+  Free de GitHub esos secrets no se entregan a repos privados: `gh secret list --org` y la API del
+  repo (`actions/organization-secrets`) lo muestran como disponible, pero el job lo recibe vacío. No
+  hay ningún error que lo explique.
+- **Solution**: cargarlo a nivel repo (`gh secret set VERCEL_TOKEN --repo <org>/<repo>`). Para no
+  repetir el paso en cada proyecto, [`alta-proyecto.sh`](./alta-proyecto.sh) lo toma de la variable
+  de entorno `VERCEL_TOKEN` de tu usuario (§3.1).
+- **Cómo confirmarlo**: `gh run view <id> --log` del paso que falla; `VERCEL_TOKEN:` sin valor.
+
+### 15. Primer Push Antes de Transferir el Repo (Corrida en Cola, Luego Cancelada)
+- **Problem**: tras subir el código a un repo personal aparece una corrida `queued` que nadie toma
+  y, al transferir el repo a la organización, queda `cancelled`.
+- **Causa**: el workflow pide `runs-on: [self-hosted, ...]` y el runner es de la organización
+  (§5.1): un repo personal no lo ve. Transferir cancela lo que está en vuelo.
+- **Solution**: crear el repo directamente en la organización
+  (`gh repo create <org>/<repo> --private …`) o transferirlo **antes** del primer push (§3.1).
+
+### 16. `gh api /ruta` Falla en Git Bash (Windows)
+- **Problem**: `invalid API endpoint: "C:/Program Files/Git/orgs/…"`.
+- **Causa**: Git Bash convierte los argumentos que empiezan con `/` en rutas de archivo de Windows.
+- **Solution**: omitir la barra inicial (`gh api orgs/<org>/actions/runners`) o anteponer
+  `MSYS_NO_PATHCONV=1` al comando. Vale igual para `vercel api /v9/…`.
 
 ---
 
@@ -789,7 +838,7 @@ salió bien. Todo esto corre desde la máquina de desarrollo.
 
 ```bash
 # ¿El runner de la organización está disponible? (requiere el scope admin:org)
-gh api /orgs/<org>/actions/runners --jq '.runners[] | "\(.name)  \(.status)  busy=\(.busy)"'
+gh api orgs/<org>/actions/runners --jq '.runners[] | "\(.name)  \(.status)  busy=\(.busy)"'
 
 # Alternativa sin admin:org: probar en vivo. Si pasa a in_progress (no Queued), ya funciona.
 gh workflow run deploy.yml --ref <rama-sin-tocar-produccion> && gh run watch

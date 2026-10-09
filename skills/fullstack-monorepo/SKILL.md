@@ -290,7 +290,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 ### Fase 5: CI/CD Pipeline Dual
 - [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Raspberry Pi / Servidor Docker con `--force-recreate`; Job 2: Vercel CLI Frontend con `needs: deploy-backend`).
 - [ ] Eliminar workflows de despliegue fragmentados u obsoletos.
-- [ ] Confirmar que el repositorio está **bajo la organización dueña del runner**.
+- [ ] Dar de alta el proyecto con [`alta-proyecto.sh`](./references/alta-proyecto.sh) (`--simular` primero): repo **bajo la organización dueña del runner**, proyecto de Vercel con su Root Directory y secrets de GitHub. Recorrido completo en CI/CD §3.1. El `VERCEL_TOKEN` va como variable de entorno de tu usuario, **no** como secret de organización (pitfall 14).
 - [ ] Copiar [`references/crear-env.sh`](./references/crear-env.sh) a `scripts/crear-env.sh` y dejar vacías en `.env.example` las `*_SECRET` y `*_PASSWORD`.
 - [ ] Crear el `.env` del servidor con `sudo bash scripts/crear-env.sh`: genera los secretos y lo deja en su **carpeta por repositorio** (`/home/github-runner/env-backups/<repo>/.env`, `600`, dueño `github-runner`; verificar con `sudo`).
 - [ ] Copiar [`references/rotar-secretos.sh`](./references/rotar-secretos.sh) a `scripts/rotar-secretos.sh` (rotación de `JWT_SECRET` y de la clave de la base, ci-cd §5.2).
@@ -336,6 +336,7 @@ Para plantillas de código listas para usar:
 - [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
 - [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
+- [`alta-proyecto.sh`](./references/alta-proyecto.sh) — el alta de un proyecto nuevo **desde la consola** (organización del runner, proyecto de Vercel, Root Directory y secrets), con modo `--simular`; el recorrido completo está en CI/CD §3.1
 - [Puertos: tu máquina y el servidor](./references/puertos.md) — **un solo mapa** de `puerto.sh` (desarrollo) y `chequear-host.sh` (servidor): qué hace cada uno, cuándo, y el orden del alta de un proyecto
 - [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
