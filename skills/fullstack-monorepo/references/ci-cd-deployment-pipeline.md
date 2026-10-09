@@ -306,6 +306,8 @@ final).
 
 ### 2.4 Puertos y horarios: el servidor es el registro
 
+> El panorama completo —también para la máquina de desarrollo— está en [`puertos.md`](./puertos.md).
+
 No hay un archivo de registro escrito a mano, a propósito: se desactualiza, y los nombres de los
 proyectos de un servidor no pertenecen a un repositorio público. La fuente de verdad es lo que el
 host ya sabe (los puertos que publican los contenedores y el `crontab` del runner), y
@@ -313,8 +315,8 @@ host ya sabe (los puertos que publican los contenedores y el `crontab` del runne
 
 | Cuándo | Comando | Qué hace |
 | :--- | :--- | :--- |
-| **Cada deploy**, justo después de cargar el `.env` | `bash scripts/chequear-host.sh` | **Falla** si `BACKEND_HOST_PORT`, `DB_HOST_PORT` o `FRONTEND_HOST_PORT` ya los publica el contenedor de **otro** proyecto, o los escucha un proceso ajeno (antes de bajar nada). **Avisa** (`::warning::`) si el backup de este repo cae a menos de 10 min del de otro |
-| **Alta de un proyecto nuevo** | `bash scripts/chequear-host.sh libre` | Imprime el próximo horario de backup libre y la línea lista para `scripts/crontab` |
+| **Cada deploy**, justo después de cargar el `.env` | `bash scripts/chequear-host.sh` | **Falla** si `BACKEND_HOST_PORT`, `DB_HOST_PORT` o `FRONTEND_HOST_PORT` ya los publica el contenedor de **otro** proyecto, figuran en el `.env` guardado de otro repo (aunque esté detenido) o los escucha un proceso ajeno (antes de bajar nada). **Avisa** (`::warning::`) si el backup de este repo cae a menos de 10 min del de otro |
+| **Alta de un proyecto nuevo**, antes de crear el `.env` | `bash scripts/chequear-host.sh alta` | **Elige**: imprime puertos de backend, base y frontend libres, y el próximo horario de backup libre con la línea lista para `scripts/crontab` |
 | **A demanda** | `docker ps --format 'table {{.Names}}\t{{.Ports}}'` y `crontab -l` | Ver el mapa completo (también en el catálogo de `inspecciona`, §6) |
 
 "Otro proyecto" es todo contenedor cuyo nombre no empieza con `$PROJECT_PREFIX-`; por eso el
@@ -322,7 +324,9 @@ prefijo del contrato (`docker-compose-recipes.md` §0.1) es obligatorio. Un rede
 proyecto no cuenta como conflicto: vuelve a tomar su propio puerto. El horario solo avisa y no
 falla el deploy: un choque de minutos es una molestia, un puerto repetido es una caída.
 
-**Avisos.** Un backup que falla en silencio no es un backup (un proyecto estuvo meses sin
+### 2.5 Avisos de backup
+
+Un backup que falla en silencio no es un backup (un proyecto estuvo meses sin
 respaldo y nadie lo supo). Dos piezas, ambas en la plantilla de `crontab`:
 
 - [`backup.sh`](./backup.sh) avisa si termina con error (o si falla solo la copia de archivos).
@@ -401,10 +405,22 @@ Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack
    echo "https://<proyecto>.vercel.app" | gh secret set SITE_URL
    ```
 
+5. **Puertos de desarrollo** (opcional, recomendado): `puerto asignar` en la carpeta del repo
+   deja un bloque fijo de puertos en el `.env` local, con o sin Docker
+   ([`puertos.md`](./puertos.md) §1).
+
 #### Fase B: Lado Servidor (Raspberry Pi 5)
 1. **NO clonar el repositorio en `~/Documents`**:
    El runner de GitHub autogestiona el workspace en `/home/github-runner/actions-runner/_work/<repo>/<repo>`. Clonar a mano crea código redundante y desperdicia espacio en la tarjeta SD.
-2. **Crear el `.env` de producción** con un solo comando. El primer deploy falla a propósito en
+2. **Elegir puertos y horario de backup libres.** Con el repo ya en el workspace (el primer push
+   lo dejó ahí), antes de crear el `.env`:
+   ```bash
+   sudo -u github-runner bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/chequear-host.sh alta
+   ```
+   Imprime `BACKEND_HOST_PORT` / `DB_HOST_PORT` (y `FRONTEND_HOST_PORT`) que nadie usa ni tiene
+   reservados, y el próximo horario libre para la línea de `scripts/crontab`. Se anotan para el
+   paso siguiente y para la ruta del Tunnel (paso 4). Detalle en [`puertos.md`](./puertos.md).
+3. **Crear el `.env` de producción** con un solo comando. El primer deploy falla a propósito en
    el paso del `.env`, pero el `checkout` ya dejó el repo en el workspace, y el log imprime este
    comando exacto:
    ```bash
@@ -412,9 +428,10 @@ Este es el procedimiento exacto y probado para dar de alta un proyecto fullstack
    ```
    Genera `JWT_SECRET` (`openssl rand -hex 32`) y toda `*_PASSWORD` vacía en `.env.example`,
    crea la carpeta y el archivo (`600`, dueño `github-runner`) y lista lo que falta completar a
-   mano (API keys: `sudo nano /home/github-runner/env-backups/<repo>/.env`). Si el proyecto ya
+   mano (API keys: `sudo nano /home/github-runner/env-backups/<repo>/.env`). Ahí también se
+   escriben los puertos del paso 2 en `BACKEND_HOST_PORT` / `DB_HOST_PORT`. Si el proyecto ya
    tiene base, el `POSTGRES_PASSWORD` real se copia a mano: la base ya fue creada con esa clave.
-3. **Configurar Cloudflare Tunnel para el Backend**:
+4. **Configurar Cloudflare Tunnel para el Backend**:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
    - hostname: api-<proyecto>.<dominio>

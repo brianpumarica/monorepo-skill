@@ -103,6 +103,8 @@ docker volume ls
 
 ### 0.2 Puertos en la máquina de desarrollo: uno fijo por proyecto
 
+> Visión de conjunto —tu máquina y el servidor— en [`puertos.md`](./puertos.md).
+
 En una máquina donde se crean muchos proyectos de prueba, el 3000 / 5173 / 8080 de los tutoriales
 choca siempre, y lo peor no es el error: es que **Vite y Next se mueven solos al puerto
 siguiente** sin avisar, y el proyecto "levanta" en un lugar que nadie esperaba. Hay que hablarle

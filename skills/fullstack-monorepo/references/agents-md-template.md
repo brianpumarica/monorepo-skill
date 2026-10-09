@@ -36,11 +36,14 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 3. Active Port Mapping
 
-| Service | Container Name | Host Port | Internal Port |
-| :--- | :--- | :--- | :--- |
-| **Database** | `[PROJECT_PREFIX]-database` | `${DB_HOST_PORT:-5432}` | `5432` |
-| **Backend** | `[PROJECT_PREFIX]-backend-dev` | `${BACKEND_HOST_PORT:-3004}` | `${PORT:-3004}` |
-| **Frontend** | `[PROJECT_PREFIX]-frontend-dev` | `${FRONTEND_HOST_PORT:-8084}` | `${FRONTEND_PORT:-8084}` |
+| Service | Container Name | Host Port — desarrollo (`puerto asignar`) | Host Port — servidor (`chequear-host.sh alta`) | Internal Port |
+| :--- | :--- | :--- | :--- | :--- |
+| **Database** | `[PROJECT_PREFIX]-database` | `[DB_HOST_PORT local]` | `[DB_HOST_PORT servidor]` | `5432` |
+| **Backend** | `[PROJECT_PREFIX]-backend-dev` | `[BACKEND_HOST_PORT local]` | `[BACKEND_HOST_PORT servidor]` | igual al de desarrollo / `${PORT}` |
+| **Frontend** | `[PROJECT_PREFIX]-frontend-dev` | `[FRONTEND_HOST_PORT local]` | `[FRONTEND_HOST_PORT servidor]` | `${FRONTEND_PORT}` |
+
+> Completar con los números **reales**, no con los defaults del compose (3004 / 8084 / 5432): los
+> defaults son los que chocan entre proyectos. Ver `puertos.md` de la skill.
 
 ---
 

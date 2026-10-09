@@ -336,6 +336,7 @@ Para plantillas de código listas para usar:
 - [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
 - [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
+- [Puertos: tu máquina y el servidor](./references/puertos.md) — **un solo mapa** de `puerto.sh` (desarrollo) y `chequear-host.sh` (servidor): qué hace cada uno, cuándo, y el orden del alta de un proyecto
 - [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
 - [AGENTS.md Standard Template](./references/agents-md-template.md)

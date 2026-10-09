@@ -120,7 +120,7 @@ git subtree pull --prefix skills https://github.com/brianpumarica/monorepo-skill
 ### 🌟 Mother Skill (Orchestrator)
 | Skill | Path | Description |
 | :--- | :--- | :--- |
-| **`fullstack-monorepo`** | [`skills/fullstack-monorepo/`](./skills/fullstack-monorepo/SKILL.md) | Framework-agnostic Golden Layout, dual-track CI/CD (Vercel CLI + Pi Runner), dev-first zero-flag Docker Compose, cross-platform hot-reload matrix (Vite, Next.js, Expo, NestJS, FastAPI). |
+| **`fullstack-monorepo`** | [`skills/fullstack-monorepo/`](./skills/fullstack-monorepo/SKILL.md) | Framework-agnostic Golden Layout, dual-track CI/CD (Vercel CLI + Pi Runner), dev-first zero-flag Docker Compose, cross-platform hot-reload matrix (Vite, Next.js, Expo, NestJS, FastAPI), fixed per-project ports on your machine and a collision-checked server. |
 
 ### 🛡️ Core Skills (Essential Infrastructure)
 | Skill | Path | Description |
