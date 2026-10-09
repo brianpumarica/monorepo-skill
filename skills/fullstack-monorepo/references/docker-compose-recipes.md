@@ -28,7 +28,7 @@ El job sale verde. Por eso la ortografía exacta es parte del estándar, no una 
 | `PORT` | Puerto **interno** del contenedor de la API | ambos compose + la app |
 | `BACKEND_HOST_PORT` | Puerto del **host** hacia la API | ambos compose + smoke test del workflow |
 | `FRONTEND_HOST_PORT` | Puerto del **host** hacia el front de desarrollo | compose dev |
-| `DB_HOST_PORT` | Puerto del **host** hacia Postgres — **sólo desarrollo** | compose dev |
+| `DB_HOST_PORT` | Puerto del **host** hacia Postgres. **Siempre atado a `127.0.0.1`** (§4.9); en producción es opcional y único por proyecto | ambos compose |
 | `HEALTH_PATH` | Ruta del endpoint de salud (default del estándar: `/api/health`) | `healthcheck` del compose prod + smoke test del workflow ([CI/CD §9](./ci-cd-deployment-pipeline.md)) |
 
 ### Base de datos y credenciales
@@ -115,7 +115,7 @@ services:
     container_name: ${PROJECT_PREFIX:-app}-database
     restart: unless-stopped
     ports:
-      - "${DB_HOST_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"   # loopback: la base nunca sale de la máquina (§4.9)
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -140,6 +140,8 @@ services:
     container_name: ${PROJECT_PREFIX:-app}-backend-dev
     restart: unless-stopped
     ports:
+      # Desarrollo: sin `127.0.0.1:` a propósito, para probar desde el celular en la misma red.
+      # En producción sí va atado al loopback (§4.9).
       - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
     depends_on:
       database:
@@ -206,10 +208,10 @@ networks:
 ## 2. `docker-compose.prod.yml` (Production for Raspberry Pi / VPS)
 
 > [!IMPORTANT]
-> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los siete deltas
+> Esta plantilla es la base mínima. **Antes de desplegar hay que aplicarle los ocho deltas
 > obligatorios de §4**: rotación de logs, variables requeridas, nombre de imagen por entorno (con
 > tag por commit), hardening por servicio, sincronía de defaults, healthcheck nativo en servicios de
-> aplicación y etiqueta de proyecto en las imágenes.
+> aplicación, etiqueta de proyecto en las imágenes y puertos en loopback.
 
 ```yaml
 services:
@@ -217,11 +219,12 @@ services:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: ${PROJECT_PREFIX:-app}-database
     restart: unless-stopped
-    # SIN `ports:` a proposito. El backend llega por la red interna `app-net`; publicar 5432
-    # en un host compartido expone la base a todo lo que corra en la maquina y colisiona con
-    # el Postgres de cualquier otro proyecto. Para depurar puntualmente, atarlo al loopback y
-    # sacarlo despues:
-    #   ports: ["127.0.0.1:${DB_HOST_PORT:-5432}:5432"]
+    # Solo en loopback (§4.9): el backend llega por la red interna `app-net`, y `127.0.0.1`
+    # alcanza para un psql o un tunel SSH desde el propio servidor. Publicar 5432 en todas las
+    # interfaces expone la base a la red local. DB_HOST_PORT tiene que ser unico por proyecto
+    # en el host (dos proyectos con el mismo puerto: "port is already allocated" en el `up`).
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -249,7 +252,7 @@ services:
     container_name: ${PROJECT_PREFIX:-app}-backend-prod
     restart: unless-stopped
     ports:
-      - "${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-3004}:${PORT:-3004}"   # loopback: entra solo el Tunnel (§4.9)
     depends_on:
       database:
         condition: service_healthy
@@ -307,7 +310,7 @@ docker logs -f ${PROJECT_PREFIX:-app}-backend-prod
 
 ## 4. Endurecimiento Obligatorio del Compose de Producción
 
-Siete deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
+Ocho deltas que se aplican **a todos los servicios** de la plantilla de §2. Ninguno es opcional
 en un host compartido.
 
 ### 4.1 Rotación de logs
@@ -460,3 +463,29 @@ Tres detalles que hacen que esto sea seguro:
 - **La imagen en uso nunca se poda**, así que la versión recién desplegada está a salvo.
 - **La poda corre después de promover**, nunca antes de verificar: podar primero borraría
   justo la imagen anterior que el rollback necesita.
+
+### 4.9 Puertos de producción en `127.0.0.1`, no en todas las interfaces
+
+`"3004:3004"` publica en `0.0.0.0`: cualquiera en la red local llega al servicio **salteando**
+Cloudflare Access (o lo que haya delante). Con `"127.0.0.1:3004:3004"` solo llega el propio
+servidor, y eso es todo lo que necesita quien entra por el Tunnel.
+
+| Servicio | Publicación en producción |
+| :--- | :--- |
+| Base de datos | `127.0.0.1:${DB_HOST_PORT}:5432` — solo para un `psql` desde el servidor. Los backups usan `docker exec`, no el puerto |
+| Backend | `127.0.0.1:${BACKEND_HOST_PORT}:${PORT}` |
+| Frontend servido por contenedor (nginx) | `127.0.0.1:${FRONTEND_HOST_PORT}:80`. Si el frontend va a Vercel, no hay nada que publicar |
+
+**Verificar antes de aplicarlo** cómo apunta cada ruta del Tunnel (`ingress` en
+`/etc/cloudflared/config.yml`, o el dashboard de Zero Trust):
+
+- `service: http://localhost:<puerto>` → funciona con `127.0.0.1`.
+- `service: http://<IP-de-la-LAN>:<puerto>` → deja de andar. Cambiarlo a `localhost` primero.
+- `cloudflared` corriendo **como contenedor** no ve el loopback del host: ahí el servicio se
+  alcanza por la red de Docker (`http://backend:3004`) y no hace falta publicar el puerto.
+
+Probarlo: `ss -tlnp | grep <puerto>` tiene que mostrar `127.0.0.1:<puerto>`, no `0.0.0.0` ni
+`*`. El smoke test del workflow corre en el host contra `localhost` y sigue funcionando.
+
+En desarrollo la base también va al loopback, pero backend y frontend quedan abiertos a
+propósito, para probar desde otro dispositivo de la red.
