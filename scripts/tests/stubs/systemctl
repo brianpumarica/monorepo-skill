@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# systemctl falso. CF_LOG anota cada llamada.
+#   SYSTEMCTL_FALLA=1        `is-active` siempre dice que no
+#   SYSTEMCTL_FALLA_UNA=1    `is-active` dice que no solo la primera vez (para probar la restauracion)
+echo "systemctl $*" >> "${CF_LOG:-/dev/null}"
+if [ "$1" = is-active ]; then
+  [ -z "${SYSTEMCTL_FALLA:-}" ] || exit 3
+  if [ -n "${SYSTEMCTL_FALLA_UNA:-}" ]; then
+    marca="${CF_LOG:-/tmp/cf}.una"
+    [ -e "$marca" ] && exit 0
+    : > "$marca"; exit 3
+  fi
+fi
+exit 0

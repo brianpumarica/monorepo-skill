@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# gh falso para probar alta-proyecto.sh. GH_LOG anota "secret set <NOMBRE> (<bytes> bytes)".
+case "$1 $2" in
+  "repo view") echo '{"name":"demo","owner":{"login":"mi-org"}}' ;;
+  "secret set") echo "secret set $3 ($(wc -c | tr -d ' ') bytes)" >> "${GH_LOG:-/dev/null}" ;;
+  "secret list") echo "VERCEL_PROJECT_ID  hoy" ;;
+esac
+exit 0

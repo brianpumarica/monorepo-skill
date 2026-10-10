@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ss falso: SS_PUERTOS="3002 5400" = puertos que "escucha" un proceso. Sin la variable, nada escucha.
+# Hace los tests rapidos y deterministas (sin consultar los puertos reales de la maquina).
+for a in "$@"; do
+  case "$a" in "sport = :"*) p=${a#"sport = :"}; for x in ${SS_PUERTOS:-}; do [ "$x" = "$p" ] && echo "LISTEN 0 128 0.0.0.0:$p 0.0.0.0:*"; done ;; esac
+done
+exit 0

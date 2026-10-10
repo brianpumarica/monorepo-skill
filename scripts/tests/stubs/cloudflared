@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# cloudflared falso. CF_LOG anota cada llamada; CF_VALIDATE_FALLA=1 hace fallar `ingress validate`.
+echo "cloudflared $*" >> "${CF_LOG:-/dev/null}"
+case "$*" in
+  *"ingress validate"*) [ -z "${CF_VALIDATE_FALLA:-}" ] ;;
+  *) exit 0 ;;
+esac

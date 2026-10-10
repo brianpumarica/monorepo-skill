@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# crontab falso: `crontab -l` imprime el archivo CRONTAB_FILE (vacio si no esta).
+[ "$1" = "-l" ] && [ -n "${CRONTAB_FILE:-}" ] && cat "$CRONTAB_FILE"
+exit 0

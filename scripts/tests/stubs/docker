@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# docker falso para los tests.
+#   DOCKER_PS     lineas "nombre|puertos" que devuelve `docker ps` (formato {{.Names}}|{{.Ports}} o {{.Names}})
+#   DOCKER_LOG    donde anota cada `docker exec` y el SQL que recibe por stdin
+#   DOCKER_FALLA  si no esta vacia, `docker exec` sale con 1
+case "$1" in
+  ps)
+    case "$*" in
+      *'{{.Names}}|{{.Ports}}'*) printf '%s\n' "${DOCKER_PS:-}" | grep -v '^$' ;;
+      *'{{.Names}}'*) printf '%s\n' "${DOCKER_PS:-}" | grep -v '^$' | cut -d'|' -f1 ;;
+    esac
+    ;;
+  exec)
+    shift
+    { echo "exec $*"; cat; } >> "${DOCKER_LOG:-/dev/null}"
+    [ -z "${DOCKER_FALLA:-}" ]
+    exit $?
+    ;;
+esac
+exit 0

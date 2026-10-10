@@ -24,6 +24,7 @@
   },
   "scripts": {
     "lint:skills": "node scripts/validate-skills.js",
-    "test": "node scripts/validate-skills.js"
+    "test:scripts": "bash scripts/tests/run.sh",
+    "test": "node scripts/validate-skills.js && bash scripts/tests/run.sh"
   }
 }

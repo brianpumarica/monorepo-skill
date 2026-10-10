@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# install falso SOLO para Windows (Git Bash): `install -m 700` falla en NTFS. Ignora -o -g -m.
+args=(); d=""
+while [ $# -gt 0 ]; do
+  case "$1" in -o | -g | -m) shift 2 ;; -d) d=1; shift ;; *) args+=("$1"); shift ;; esac
+done
+if [ -n "$d" ]; then mkdir -p "${args[@]}"; else cp "${args[0]}" "${args[1]}"; fi

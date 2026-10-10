@@ -25,3 +25,24 @@ jobs:
 
       - name: Run Skills Validator
         run: node scripts/validate-skills.js
+
+  scripts:
+    name: Shell Scripts (syntax, ShellCheck, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          set -e
+          for f in skills/*/references/*.sh scripts/tests/*.sh scripts/tests/stubs/* scripts/tests/stubs-windows/*; do
+            bash -n "$f"
+          done
+
+      # ShellCheck viene preinstalado en los runners de GitHub (ubuntu-latest).
+      - name: ShellCheck (warning and above)
+        run: shellcheck -S warning skills/*/references/*.sh scripts/tests/*.sh scripts/tests/stubs/* scripts/tests/stubs-windows/*
+
+      - name: Script tests (stubbed docker / cloudflared / systemctl)
+        run: bash scripts/tests/run.sh
