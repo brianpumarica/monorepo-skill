@@ -31,6 +31,7 @@ log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 # Avisar nunca debe romper el backup ni taparle su codigo de salida.
 avisar() { [ -x "$AVISAR" ] && "$AVISAR" "$1" || true; }
 # EXIT cubre tanto los `exit 1` explicitos como cualquier comando que `set -e` aborte.
+# shellcheck disable=SC2154  # rc se asigna dentro del propio trap
 trap 'rc=$?; [ "$rc" -eq 0 ] || avisar "❌ Backup de $REPO_NAME fallo (codigo $rc). Ver backup.log"' EXIT
 
 log "==> Backup de $REPO_NAME"

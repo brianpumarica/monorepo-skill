@@ -91,8 +91,8 @@ puerto_actual() {
     f && /^[[:space:]]*-[[:space:]]/ { exit }' "$CONFIG"
 }
 # ¿La entrada de $host la creo este script? (el comentario con el marcador va justo arriba)
-es_nuestra() { grep -B1 -E "hostname:[[:space:]]*$host[[:space:]]*$" "$CONFIG" | head -1 | grep -qF "$MARCA"; }
-existe() { grep -qE "^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*$host[[:space:]]*$" "$CONFIG"; }
+es_nuestra() { grep -B1 -E "hostname:[[:space:]]*${host}[[:space:]]*$" "$CONFIG" | head -1 | grep -qF "$MARCA"; }
+existe() { grep -qE "^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*${host}[[:space:]]*$" "$CONFIG"; }
 
 # ---- --quitar ----------------------------------------------------------------
 if [ "$modo" = quitar ]; then

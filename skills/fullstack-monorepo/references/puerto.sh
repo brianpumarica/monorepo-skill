@@ -102,7 +102,7 @@ quien() {
     echo "El puerto $p es del proyecto '$d' (bloque $b, +$((p - b)))  $(estado "$p")"
   elif escuchando "$p"; then
     echo "El puerto $p esta en uso por algo que no es un proyecto registrado."
-    command -v netstat >/dev/null 2>&1 && netstat -ano 2>/dev/null | grep -E "[:.]$p[[:space:]].*LISTEN" | head -3
+    command -v netstat >/dev/null 2>&1 && netstat -ano 2>/dev/null | grep -E "[:.]${p}[[:space:]].*LISTEN" | head -3
     echo "   (en Windows: tasklist //FI \"PID eq <PID>\"; en Linux/macOS: lsof -i :$p)"
   else
     echo "El puerto $p esta libre y no pertenece a ningun proyecto."
