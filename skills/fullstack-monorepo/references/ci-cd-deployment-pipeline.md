@@ -444,7 +444,10 @@ el camino completo por el deploy (la ruta se quitó a propósito y el deploy la 
 de `404` a `200`), con el `sudo -n` del runner y la regla de `sudoers` de arriba. La versión
 actual, sobre una copia del `config.yml` real: el bloque que inserta pasa el `ingress validate` del
 `cloudflared` real, queda antes del catch-all, la segunda corrida no toca nada y el `diff` contra el
-original son solo esas líneas (**probado en producción**).
+original son solo esas líneas (**probado en producción**). Y con el reinicio real, instalada en
+`/usr/local/sbin`: alta de una ruta sin DNS (`ORIGINCERT` vacío) y `--quitar`, con `nohup` desde la
+terminal web; `cloudflared` reinició y quedó activo las dos veces, el `config.yml` volvió idéntico al
+original y las rutas existentes siguieron respondiendo `200`.
 Quitar una ruta **no borra el CNAME** de DNS (`cloudflared` no tiene un comando para eso): se borra
 en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él, la ruta queda en el
 `config.yml` y el script avisa que falta crear el CNAME.
