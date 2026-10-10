@@ -281,8 +281,9 @@ jobs:
 > pega el valor en el texto del script *antes* de que el shell lo lea: una comilla, un `$` o un
 > `|` en el secreto rompe el comando (o lo reinterpreta). Por `env:` llega como variable de
 > entorno y el shell nunca lo parsea. La Vercel CLI lee `VERCEL_TOKEN` del entorno sola, por eso
-> los pasos de arriba no llevan `--token`. En el resto de los pasos, el mismo criterio: valor en
-> `env:`, y en el script `"$VARIABLE"` entre comillas.
+> los pasos de arriba no llevan `--token` (**probado** en cuatro proyectos reales: `pull`, `build` y
+> `deploy` toman el token solo). En el resto de los pasos, el mismo criterio: valor en `env:`, y en
+> el script `"$VARIABLE"` entre comillas.
 
 > **Validaciones antes del deploy.** Si el repositorio tiene lint, tests o type-check, van en un
 > job propio y los jobs de despliegue lo declaran en `needs:`. Un job de validación que corre en
@@ -345,6 +346,10 @@ host ya sabe (los puertos que publican los contenedores y el `crontab` del runne
 prefijo del contrato (`docker-compose-recipes.md` §0.1) es obligatorio. Un redeploy del mismo
 proyecto no cuenta como conflicto: vuelve a tomar su propio puerto. El horario solo avisa y no
 falla el deploy: un choque de minutos es una molestia, un puerto repetido es una caída.
+
+**Probado en producción:** `chequear-host.sh` corrió en siete deploys reales, en un servidor con
+otros seis proyectos, **sin falsos positivos**: los redeploys del mismo proyecto pasaron como
+«lo tiene este mismo proyecto» y ningún puerto propio se tomó por ajeno.
 
 ### 2.5 Avisos de backup
 

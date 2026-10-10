@@ -551,5 +551,10 @@ servidor, y eso es todo lo que necesita quien entra por el Tunnel.
 Probarlo: `ss -tlnp | grep <puerto>` tiene que mostrar `127.0.0.1:<puerto>`, no `0.0.0.0` ni
 `*`. El smoke test del workflow corre en el host contra `localhost` y sigue funcionando.
 
+**Probado en producción:** con el puerto atado a `127.0.0.1` y la ruta del Tunnel en
+`service: http://localhost:<puerto>`, las siete rutas públicas siguieron respondiendo `200`.
+`localhost` se resuelve primero a `::1`, donde el puerto no escucha: `cloudflared` no conecta ahí
+y cae a IPv4, sin corte visible. No hace falta cambiar `localhost` por `127.0.0.1` en el `ingress`.
+
 En desarrollo la base también va al loopback, pero backend y frontend quedan abiertos a
 propósito, para probar desde otro dispositivo de la red.
