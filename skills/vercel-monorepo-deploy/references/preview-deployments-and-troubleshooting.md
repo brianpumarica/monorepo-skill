@@ -30,24 +30,27 @@ jobs:
         run: npm install --global pnpm@latest vercel@latest
 
       - name: Pull Vercel Environment (Preview)
-        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=preview
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Build Project (Preview)
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.PREVIEW_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.PREVIEW_API_URL || secrets.API_URL || secrets.NEXT_PUBLIC_API_URL }}
 
       - name: Deploy Preview to Vercel
         id: deploy
         run: |
-          PREVIEW_URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          PREVIEW_URL=$(vercel deploy --prebuilt)
           echo "url=$PREVIEW_URL" >> $GITHUB_OUTPUT
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 

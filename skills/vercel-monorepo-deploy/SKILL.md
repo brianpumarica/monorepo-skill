@@ -34,7 +34,7 @@ When importing the monorepo Git repository into Vercel, set these project settin
 - `VERCEL_TOKEN`: Personal token from *Vercel Account Settings > Tokens*.
 - `VERCEL_PROJECT_ID`: ID from *Vercel Project Settings > General*.
 - `VERCEL_ORG_ID`: Account/Team ID from *Vercel Project Settings > General*.
-- `NEXT_PUBLIC_API_URL` / `VITE_API_URL`: Cloudflare Tunnel URL (e.g. `https://api.tudominio.com`).
+- `API_URL`: Cloudflare Tunnel URL of the backend (e.g. `https://api-proyecto.tudominio.com`). One common secret; the workflow maps it to the name each framework reads (`NEXT_PUBLIC_API_URL` / `VITE_API_URL`). Repos that already have a secret with the framework name keep working (fallback in `env:`).
 
 ### Production Workflow Step (`.github/workflows/deploy.yml`):
 ```yaml
@@ -55,30 +55,35 @@ deploy-frontend:
 
     - name: Pull Vercel Environment Information
       run: |
-        vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        vercel pull --yes --environment=production
         if [ -f .vercel/.env.production.local ]; then
           cp .vercel/.env.production.local apps/web/.env.production.local 2>/dev/null || cp .vercel/.env.production.local frontend/.env.production.local 2>/dev/null || true
         fi
       env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     - name: Build Project Artifacts
-      run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      run: vercel build --prod
       env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-        VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+        NEXT_PUBLIC_API_URL: ${{ secrets.API_URL || secrets.NEXT_PUBLIC_API_URL }}
+        VITE_API_URL: ${{ secrets.API_URL || secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
 
     - name: Deploy Prebuilt Artifacts to Vercel
-      run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+      run: vercel deploy --prebuilt --prod
       env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-        VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+        NEXT_PUBLIC_API_URL: ${{ secrets.API_URL || secrets.NEXT_PUBLIC_API_URL }}
+        VITE_API_URL: ${{ secrets.API_URL || secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
 ```
+
+> **Secrets always via `env:`, never inside `run:`.** With `--token=${{ secrets.VERCEL_TOKEN }}` GitHub pastes the value into the script text *before* the shell reads it: a quote, a `$` or a `|` in the secret breaks (or reinterprets) the command. Through `env:` it arrives as an environment variable and the shell never parses it. The Vercel CLI reads `VERCEL_TOKEN` from the environment by itself, so `pull`, `build` and `deploy` need no `--token` (tested on four real projects).
 
 ---
 
@@ -211,7 +216,7 @@ export default defineConfig({
 - [ ] Vercel Root Directory set to `apps/web` with "Include files outside Root" checked.
 - [ ] Vercel CLI secrets configured in GitHub (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
 - [ ] Node.js version set to `22` in CI workflow (`actions/setup-node@v4`).
-- [ ] `NEXT_PUBLIC_API_URL` or `VITE_API_URL` passed in `vercel build` and `vercel deploy` steps.
+- [ ] `API_URL` (mapped to `NEXT_PUBLIC_API_URL` / `VITE_API_URL`) in the `env:` of the `vercel build` and `vercel deploy` steps, and `VERCEL_TOKEN` in `env:` (no `--token=` inside `run:`).
 - [ ] Vercel CLI executed from monorepo root without `working-directory` duplicate flag.
 - [ ] Ignored Build Step configured with `npx turbo-ignore web`.
 - [ ] `vercel.json` created in `apps/web` (for Vite/SPA apps).
