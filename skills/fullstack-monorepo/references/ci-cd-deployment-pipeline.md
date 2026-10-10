@@ -898,7 +898,7 @@ nada desplegado que inspeccionar** y el resto del catálogo es ruido.
 gh repo view --json nameWithOwner,isPrivate --jq '.'      # ¿esta bajo la organizacion? (§5.1)
 gh run list --limit 10                                     # ¿alguna verde?
 gh secret list                                             # ¿estan cargados los secrets?
-gh api repos/<owner>/<repo>/actions/runners --jq '.runners[]?'   # ¿ve algun runner?
+gh api orgs/<org>/actions/runners --jq '.runners[] | "\(.name)  \(.status)"'   # ¿hay runner? (el de la organizacion)
 gh api "repos/<owner>/<repo>/actions/runs?event=push" --jq '.total_count' # ¿el push dispara eventos o esta dormido? (§4.12)
 ```
 
@@ -910,6 +910,11 @@ quedó en `Queued`. No hay ningún mensaje de error que lo explique.
 gh run view <id> --json jobs \
   --jq '.jobs[] | "\(.status)/\(.conclusion)  \(.startedAt) → \(.completedAt)"'
 ```
+
+> [!WARNING]
+> **`repos/<owner>/<repo>/actions/runners` no lista los runners de la organización**: devuelve
+> vacío aunque el runner exista y ande (da un falso «no hay runner»). Para saber qué runner
+> hizo una corrida: `gh api repos/<owner>/<repo>/actions/runs/<id>/jobs --jq '.jobs[] | "\(.name)  \(.runner_name)"'`.
 
 Las dos causas, ambas silenciosas: el repositorio **no está bajo la organización** dueña del
 runner (§5.1), o las **etiquetas del `runs-on` no coinciden** con las del runner real.
@@ -954,17 +959,28 @@ docker logs --tail=80 --since 30m <contenedor>
 
 Un `.env` de producción con la contraseña o el secreto de `.env.example` deja credenciales
 públicas (el repo es legible): pasó con `ADMIN_PASSWORD` y `JWT_SECRET`. Compara **cada**
-variable `*_PASSWORD` / `*_SECRET` contra la plantilla y **no imprime ningún valor**, solo el
-veredicto. Una línea por repo (reemplazar `<repo>`; el workspace tiene el `.env.example` del
-último deploy):
+variable `*_PASSWORD` / `*_SECRET` / `*_KEY` contra la plantilla (salvo las `NEXT_PUBLIC_*` y
+`VITE_*`, públicas por definición) y **no imprime ningún valor**, solo el veredicto. Una línea por
+repo (reemplazar `<repo>`; el workspace tiene el `.env.example` del último deploy):
 
 ```bash
-sudo awk -F= 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD)$/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print $1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' /home/github-runner/actions-runner/_work/<repo>/<repo>/.env.example /home/github-runner/env-backups/<repo>/.env
+sudo awk -F= 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print $1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' /home/github-runner/actions-runner/_work/<repo>/<repo>/.env.example /home/github-runner/env-backups/<repo>/.env
 ```
 
 Salida esperada: `OK` en todas. `EJEMPLO` (igual a la plantilla, o `admin`) es un hallazgo
 **crítico**: rotarla con [`rotar-secretos.sh`](./rotar-secretos.sh) (§5.2). `VACIO` en una
 variable obligatoria también; en una API key opcional, no.
+
+> [!WARNING]
+> **Sin ninguna línea de salida no significa «sano»: significa que no se chequeó nada** (ninguna
+> variable del `.env.example` termina en `_SECRET`, `_PASSWORD` ni `_KEY`, o la ruta es otra).
+> Un proyecto cuyo único secreto es `API_KEY` salía así y parecía limpio.
+
+Todos los repos del almacén, de una vez (una línea por variable, con el repo adelante):
+
+```bash
+for r in $(sudo ls /home/github-runner/env-backups); do ex=/home/github-runner/actions-runner/_work/$r/$r/.env.example; [ -f "$ex" ] || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" /home/github-runner/env-backups/$r/.env; done
+```
 
 ### 6.6 Cron versionado: ¿las rutas existen?
 
@@ -988,6 +1004,14 @@ sudo -u github-runner bash -c 'for d in $HOME/backups/*/; do echo "$d  $(find "$
 `0 recientes` en un proyecto con cron instalado = el backup se atrasó o está fallando (el
 motivo está en su `backup.log`).
 
+> [!WARNING]
+> **Esto solo mira el crontab de `github-runner`.** Un proyecto que despliega con otro usuario
+> (modelo `sudo -u <dueño> desplegar.sh`) tiene su cron y sus backups en el home de ese usuario:
+> quedan fuera de este chequeo **y de `verificar-backup.sh`**, que mira `~/backups/` del runner.
+> Ver qué usuarios tienen cron: `sudo ls /var/spool/cron/crontabs`, y el de cada uno:
+> `sudo crontab -l -u <usuario>`. Para esos proyectos, repetir el chequeo con ese usuario y
+> asegurarse de que algo avise si su backup deja de correr.
+
 ### 6.7 `.env` sueltos y carpetas fuera de convención
 
 El almacén tiene que ser exactamente `env-backups/<repo>/.env` (más `last-good-tag` y las copias
@@ -1002,7 +1026,10 @@ diff <(sudo ls /home/github-runner/env-backups) <(sudo ls /home/github-runner/ac
 ```
 
 Salida esperada: vacía en las tres primeras. En el `diff`, `<` es un `.env` de un repo que ya
-no se despliega (candidato a archivar) y `>` un repo que corre sin `.env` propio. Borrar un
+no se despliega (candidato a archivar) y `>` un repo que corre sin `.env` propio. Un proyecto que
+despliega con otro usuario (§6.6) **no tiene carpeta en `_work` ni en `env-backups`**: no aparece
+en el `diff` ni en las tres primeras, y eso no quiere decir que esté bien. Su `.env` vive donde lo
+lea su propio `desplegar.sh` y se revisa aparte. Borrar un
 suelto se propone **después** de confirmar que su carpeta tiene un `.env` vigente (§5.2).
 
 ### 6.8 Reglas del modo
