@@ -349,7 +349,10 @@ falla el deploy: un choque de minutos es una molestia, un puerto repetido es una
 
 **Probado en producción:** `chequear-host.sh` corrió en siete deploys reales, en un servidor con
 otros seis proyectos, **sin falsos positivos**: los redeploys del mismo proyecto pasaron como
-«lo tiene este mismo proyecto» y ningún puerto propio se tomó por ajeno.
+«lo tiene este mismo proyecto» y ningún puerto propio se tomó por ajeno. `alta` con `ss` y
+`docker` reales: los puertos que propuso estaban libres de verdad. Esa prueba encontró que, como
+`github-runner`, `libre` solo leía su propio crontab y propuso un horario que ya usaba el backup de
+otro usuario: por eso `alta` y `libre` se corren con `sudo` (leen todos los crontabs).
 
 ### 2.5 Avisos de backup
 
@@ -372,6 +375,11 @@ sudo install -o github-runner -g github-runner -m 600 /dev/null /home/github-run
 sudo nano /home/github-runner/avisar.env      # AVISO_URL=https://...
 sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 ```
+
+**Probado en producción** (PostgreSQL 16, como `github-runner`): `backup.sh` contra una base real
+(el volcado trae la cabecera `-- PostgreSQL database dump` que exige el chequeo; la carpeta queda
+`700`), con un contenedor inexistente (lo dice y sale con `1`), `verificar-backup.sh` sobre los
+backups reales y `avisar.sh` sin `AVISO_URL` (solo log, sale con `0`).
 
 ### 2.6 Ruta del Tunnel: la registra el servidor, no el repo
 
@@ -433,7 +441,10 @@ investigó la causa: usar `nohup`.)
 
 **Verificado en un servidor real:** alta, idempotencia (la segunda corrida no reinicia), `--quitar`, y
 el camino completo por el deploy (la ruta se quitó a propósito y el deploy la volvió a registrar sola:
-de `404` a `200`), con el `sudo -n` del runner y la regla de `sudoers` de arriba.
+de `404` a `200`), con el `sudo -n` del runner y la regla de `sudoers` de arriba. La versión
+actual, sobre una copia del `config.yml` real: el bloque que inserta pasa el `ingress validate` del
+`cloudflared` real, queda antes del catch-all, la segunda corrida no toca nada y el `diff` contra el
+original son solo esas líneas (**probado en producción**).
 Quitar una ruta **no borra el CNAME** de DNS (`cloudflared` no tiene un comando para eso): se borra
 en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él, la ruta queda en el
 `config.yml` y el script avisa que falta crear el CNAME.
@@ -850,6 +861,10 @@ La base se busca en el contenedor `DB_CONTAINER_NAME` del `.env` o, si no está,
 `<PROJECT_PREFIX>-database`. Si el `.env` no trae ninguno de los dos, el script **avisa el motivo y
 no toca nada** (no adivina un nombre genérico).
 
+**Probado en producción:** `crear-env.sh` y `rotar-secretos.sh jwt` con `sudo` dejan la carpeta en
+`700` y el `.env` y su `.env.bak-*` en `600`, dueño `github-runner` (el `chown` real). Para ver el
+`.env.bak-*` con un comodín, el `*` tiene que expandirse con root: `sudo sh -c 'ls …/.env.bak-*'`.
+
 **Paso a paso para rotar la clave de la base** (probado en producción):
 
 1. **Backup manual** con el `backup.sh` del proyecto y confirmar que el archivo no está vacío.
@@ -988,6 +1003,8 @@ Todos los repos del almacén, de una vez (una línea por variable, con el repo a
 for r in $(sudo ls /home/github-runner/env-backups); do ex=/home/github-runner/actions-runner/_work/$r/$r/.env.example; sudo test -f "$ex" || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" /home/github-runner/env-backups/$r/.env; done
 ```
 
+**Probado en producción** sobre seis repos: una o más líneas por repo, ningún valor impreso.
+
 ### 6.6 Cron versionado: ¿las rutas existen?
 
 El backup puede fallar en silencio durante meses si el cron apunta a un lugar que no existe
@@ -1015,8 +1032,8 @@ motivo está en su `backup.log`).
 > (modelo `sudo -u <dueño> desplegar.sh`) tiene su cron y sus backups en el home de ese usuario:
 > quedan fuera de este chequeo **y de `verificar-backup.sh`**, que mira `~/backups/` del runner.
 > Ver qué usuarios tienen cron: `sudo ls /var/spool/cron/crontabs`, y el de cada uno:
-> `sudo crontab -l -u <usuario>`. Para esos proyectos, repetir el chequeo con ese usuario y
-> asegurarse de que algo avise si su backup deja de correr.
+> `sudo crontab -l -u <usuario>` (**probado en producción**). Para esos proyectos, repetir el
+> chequeo con ese usuario y asegurarse de que algo avise si su backup deja de correr.
 
 ### 6.7 `.env` sueltos y carpetas fuera de convención
 
