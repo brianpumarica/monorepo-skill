@@ -751,6 +751,21 @@ en todos los proyectos y no hay nada que editar por repo.
 al backend afuera de su propia base. No imprime secretos ni reinicia nada: después hay que volver
 a correr el deploy. Rotar `JWT_SECRET` cierra todas las sesiones abiertas.
 
+La base se busca en el contenedor `DB_CONTAINER_NAME` del `.env` o, si no está, en
+`<PROJECT_PREFIX>-database`. Si el `.env` no trae ninguno de los dos, el script **avisa el motivo y
+no toca nada** (no adivina un nombre genérico).
+
+**Paso a paso para rotar la clave de la base** (probado en producción):
+
+1. **Backup manual** con el `backup.sh` del proyecto y confirmar que el archivo no está vacío.
+2. **Prefijo**: que el `.env` del servidor tenga `PROJECT_PREFIX` (o `DB_CONTAINER_NAME`).
+3. `sudo bash scripts/rotar-secretos.sh db`.
+4. **Deploy inmediato** (`gh workflow run deploy.yml --ref <rama>`): hasta entonces el backend en
+   marcha no puede abrir conexiones nuevas.
+5. **`/health` con la base**: que responda 200 y reporte la base como conectada.
+6. Recién ahí, sumar la variable a `REQUIRED_SECRETS` del deploy (si la lista es manual).
+7. Borrar el `.env.bak-*` (guarda la clave anterior en texto plano).
+
 > **Migración desde el layout viejo** (un `.env` suelto en `env-backups/`): mover el archivo a su
 > carpeta, desplegar una vez para confirmar, y recién ahí borrar el original.
 

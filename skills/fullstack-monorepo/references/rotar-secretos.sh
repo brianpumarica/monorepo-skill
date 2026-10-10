@@ -5,6 +5,8 @@
 #   sudo bash scripts/rotar-secretos.sh db     # solo la clave de la base
 #   sudo bash scripts/rotar-secretos.sh all    # las dos
 #
+# La base se busca en el contenedor DB_CONTAINER_NAME del .env o, si no esta, <PROJECT_PREFIX>-database.
+#
 # Orden, que es lo que evita quedarse afuera de la propia base:
 #   1. se prepara el .env nuevo en un archivo temporal (nada cambia todavia);
 #   2. ALTER USER en la base, con la clave vieja aun vigente;
@@ -37,8 +39,9 @@ env_file="$base/$repo/.env"
 
 [ -f "$env_file" ] || { echo "❌ No existe $env_file"; exit 1; }
 
-# Lee VAR del .env sacando comillas y espacios sobrantes.
-leer() { grep -m1 "^$1=" "$env_file" | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'; }
+# Lee VAR del .env sacando comillas y espacios sobrantes. Si la clave no esta devuelve vacio (sin el
+# `|| true`, el grep sin resultado + `set -e` + `pipefail` mataba el script en silencio).
+leer() { { grep -m1 "^$1=" "$env_file" || true; } | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'; }
 
 # Reemplaza VAR=... en el archivo $1 por el valor $3, conservando las comillas si las tenia.
 poner() {
@@ -63,7 +66,14 @@ fi
 if [ "$modo" = db ] || [ "$modo" = all ]; then
   usuario=$(leer POSTGRES_USER); basedatos=$(leer POSTGRES_DB)
   vieja=$(leer POSTGRES_PASSWORD); prefijo=$(leer PROJECT_PREFIX)
-  contenedor="${prefijo:-app}-database"
+  # El contenedor de la base: DB_CONTAINER_NAME del .env, o <PROJECT_PREFIX>-database. Sin ninguno
+  # de los dos NO se adivina un nombre generico ("app-database" podria ser de otro proyecto).
+  contenedor=$(leer DB_CONTAINER_NAME)
+  [ -n "$contenedor" ] || { [ -n "$prefijo" ] && contenedor="$prefijo-database"; }
+  [ -n "$contenedor" ] \
+    || { echo "❌ $env_file no tiene DB_CONTAINER_NAME ni PROJECT_PREFIX: no se sabe en que contenedor hacer el ALTER USER."
+         echo "   Agregar una de las dos (p. ej. PROJECT_PREFIX=<prefijo-del-proyecto>) y repetir. No se toco nada."
+         rm -f "$tmp"; exit 1; }
   [ -n "$usuario" ] && [ -n "$basedatos" ] && [ -n "$vieja" ] \
     || { echo "❌ Faltan POSTGRES_USER, POSTGRES_DB o POSTGRES_PASSWORD en $env_file"; rm -f "$tmp"; exit 1; }
   docker ps --format '{{.Names}}' | grep -qx "$contenedor" \
