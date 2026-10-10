@@ -164,12 +164,12 @@ fi
 if quiere 3; then
   paso "3. Secrets de GitHub ($REPO)"
   if [ -f .vercel/project.json ] || [ "$SIMULAR" -eq 1 ]; then
-    if confirmar "cargar VERCEL_PROJECT_ID, VERCEL_ORG_ID, VITE_API_URL y SITE_URL en $REPO"; then
+    if confirmar "cargar VERCEL_PROJECT_ID, VERCEL_ORG_ID, API_URL y SITE_URL en $REPO"; then
       PROJECT_ID=$(node -p 'require("./.vercel/project.json").projectId')
       ORG_ID=$(node -p 'require("./.vercel/project.json").orgId')
       printf '%s' "$PROJECT_ID" | gh secret set VERCEL_PROJECT_ID --repo "$REPO"
       printf '%s' "$ORG_ID" | gh secret set VERCEL_ORG_ID --repo "$REPO"
-      printf '%s' "https://api-$NOMBRE.$DOMINIO" | gh secret set VITE_API_URL --repo "$REPO"
+      printf '%s' "https://api-$NOMBRE.$DOMINIO" | gh secret set API_URL --repo "$REPO"
       printf '%s' "https://$NOMBRE.vercel.app" | gh secret set SITE_URL --repo "$REPO"
     fi
     # El token es el mismo para todos: se carga como secret DEL REPO (un secret de organizacion

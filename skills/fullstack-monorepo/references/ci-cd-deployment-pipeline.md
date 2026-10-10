@@ -33,7 +33,7 @@ on:
   push:
     branches:
       - main
-      - master
+      - master   # solo repos viejos sin renombrar; la convencion es main + develop (§7.1)
   workflow_dispatch:   # permite probar el pipeline contra la infra real sin tocar main/master
 
 # Menor privilegio: el pipeline sólo necesita leer el repositorio.
@@ -254,8 +254,10 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          # Un solo secret comun (API_URL) traducido al nombre que lee cada framework; los
+          # secrets con el nombre del framework siguen valiendo para repos que ya los tienen.
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          VITE_API_URL: ${{ secrets.API_URL || secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
 
       - name: Deploy Prebuilt Artifacts to Vercel
         run: vercel deploy --prebuilt --prod
@@ -263,8 +265,10 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          VITE_API_URL: ${{ secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          # Un solo secret comun (API_URL) traducido al nombre que lee cada framework; los
+          # secrets con el nombre del framework siguen valiendo para repos que ya los tienen.
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL || secrets.NEXT_PUBLIC_API_URL }}
+          VITE_API_URL: ${{ secrets.API_URL || secrets.VITE_API_URL || secrets.NEXT_PUBLIC_API_URL }}
 ```
 
 > [!WARNING]
@@ -443,8 +447,19 @@ en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él
 | `VERCEL_TOKEN` | Vercel Personal Access Token | Vercel Dashboard > *Account Settings > Tokens* |
 | `VERCEL_PROJECT_ID` | Specific Project ID | Vercel Project > *Settings > General* |
 | `VERCEL_ORG_ID` | Team / Personal Account ID | Vercel Project > *Settings > General* (or User Settings) |
-| `NEXT_PUBLIC_API_URL` / `VITE_API_URL` | Public backend URL | e.g. `https://api-proyecto.tudominio.com` *(usar guion, no punto)* |
+| `API_URL` | Public backend URL (common name; the workflow maps it to `NEXT_PUBLIC_API_URL` / `VITE_API_URL`) | e.g. `https://api-proyecto.tudominio.com` *(usar guion, no punto)* |
 | `SITE_URL` | Frontend canonical URL | e.g. `https://proyecto.vercel.app` (requerido si prerenderiza Open Graph) |
+
+> [!TIP]
+> **Pasar un repo con `NEXT_PUBLIC_API_URL` / `VITE_API_URL` a `API_URL` sin leer el secret viejo**
+> (GitHub no deja leer el valor de un secret): sacarlo del bundle que ya está publicado. Buscar el
+> `.js` en el HTML y extraer la URL del backend:
+> ```bash
+> curl -fsS https://<frontend>/ | grep -oE '/assets/[^"]+\.js' | head -3        # Vite; en Next.js: /_next/static/...
+> curl -fsS https://<frontend>/assets/<bundle>.js | grep -oE 'https://api-[A-Za-z0-9.-]+' | sort -u
+> printf '%s' 'https://api-proyecto.tudominio.com' | gh secret set API_URL --repo <org>/<repo>
+> ```
+> Con `API_URL` cargado, el secret viejo se puede borrar cuando el siguiente deploy salga bien.
 
 > [!IMPORTANT]
 > `VERCEL_TOKEN` y `VERCEL_ORG_ID` suelen ser constantes por cuenta/team — se guardan una vez (el
@@ -500,7 +515,7 @@ del Tunnel.
    Hace, en orden: (1) pasa el repo a la organización si no está; (2) `vercel link` + fija el
    **Root Directory** del proyecto por `vercel api` (`link --yes` no lo hace y el build corre en la
    raíz del monorepo); (3) carga como secrets del repo `VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`,
-   `VERCEL_TOKEN`, `VITE_API_URL` y `SITE_URL`. Cada paso se puede correr suelto:
+   `VERCEL_TOKEN`, `API_URL` y `SITE_URL`. Cada paso se puede correr suelto:
    `alta-proyecto --paso 2`.
 
    > Vercel imprime un **error 409** al enlazar ("repository is private and owned by an
@@ -1015,7 +1030,7 @@ gh workflow run deploy.yml --ref <rama-sin-tocar-produccion> && gh run watch
 gh repo view --json nameWithOwner,isPrivate --jq '.'
 
 # Crear el PR hacia la rama de producción
-gh pr create --base master --head develop --title "<título>" --body "<descripción>"
+gh pr create --base main --head develop --title "<título>" --body "<descripción>"
 
 # Seguir el deploy en vivo, sin salir de la terminal
 gh run watch
@@ -1029,6 +1044,38 @@ gh run view --log-failed
 
 **Regla:** un deploy no se da por bueno porque el job esté verde. `gh run watch` confirma que el
 pipeline terminó; la verificación de §8 confirma que el código nuevo **llegó**.
+
+### 7.1 Ramas: `main` (producción) + `develop`
+
+Convención: **`main` es producción** (el merge despliega) y **`develop`** es la rama de integración;
+los cambios entran por PR (`fix/...` o `develop` → `main`). Para un repo que todavía usa `master`:
+
+```bash
+# Renombrar en GitHub (reapunta los PR abiertos y redirige las URLs viejas)
+gh api -X POST repos/<org>/<repo>/branches/master/rename -f new_name=main
+```
+
+> [!WARNING]
+> Renombrar `master` → `main` **dispara un deploy**: para el workflow cuenta como un push a `main`.
+> Hacerlo con el backup al día y sabiendo que va a correr; no en medio de un cambio a medias.
+
+Crear `develop` si no existe, o **adelantarla** hasta `main` sin riesgo de pisar trabajo (sin `force`:
+si `develop` tiene commits que `main` no tiene, falla en vez de descartarlos):
+
+```bash
+SHA=$(gh api repos/<org>/<repo>/git/ref/heads/main --jq .object.sha)
+gh api -X POST  repos/<org>/<repo>/git/refs -f ref=refs/heads/develop -f sha="$SHA"     # si no existe
+gh api -X PATCH repos/<org>/<repo>/git/refs/heads/develop -f sha="$SHA"                 # si existe
+```
+
+**Clones locales** (también los que tienen cambios sin commitear: no se tocan los archivos):
+
+```bash
+git fetch origin --prune
+git branch -f main origin/main      # crea o mueve main; falla si main es la rama actual (es lo esperado)
+git switch main                      # conserva los cambios sin commitear si no chocan
+git branch -u origin/main main
+```
 
 ---
 
