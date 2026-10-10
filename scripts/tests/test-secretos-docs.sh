@@ -43,6 +43,9 @@ titulo "inspecciona §6.5: bucle sobre env-backups"
 B="$T/gr"
 linea=$(grep -E '^for r in \$\(sudo ls /home/github-runner/env-backups\)' "$CICD_MD" | head -1)
 [ -n "$linea" ] || { fail "no encontre el bucle de §6.5 en la doc"; terminar; exit 1; }
+# El home del runner no es legible para el usuario comun: TODO acceso a esa ruta va con sudo, tambien
+# la comprobacion de existencia (sin ella el bucle marcaba a todos los repos como "SIN .env.example").
+contiene "el bucle comprueba el .env.example con sudo (el home del runner no es legible)" "$linea" 'sudo test -f "\$ex"'
 printf '%s\n' "$linea" | sed "s#sudo ##g; s#/home/github-runner#$B#g" > "$T/bucle.sh"
 ws() { mkdir -p "$B/actions-runner/_work/$1/$1" "$B/env-backups/$1"; printf '%b' "$2" > "$B/actions-runner/_work/$1/$1/.env.example"; printf '%b' "$3" > "$B/env-backups/$1/.env"; }
 ws solo-key 'API_KEY=cambiame\nPORT=3000\n' 'API_KEY=cambiame\nPORT=3000\n'

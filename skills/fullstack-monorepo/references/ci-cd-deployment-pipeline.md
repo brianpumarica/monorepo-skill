@@ -985,7 +985,7 @@ variable obligatoria también; en una API key opcional, no.
 Todos los repos del almacén, de una vez (una línea por variable, con el repo adelante):
 
 ```bash
-for r in $(sudo ls /home/github-runner/env-backups); do ex=/home/github-runner/actions-runner/_work/$r/$r/.env.example; [ -f "$ex" ] || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" /home/github-runner/env-backups/$r/.env; done
+for r in $(sudo ls /home/github-runner/env-backups); do ex=/home/github-runner/actions-runner/_work/$r/$r/.env.example; sudo test -f "$ex" || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" /home/github-runner/env-backups/$r/.env; done
 ```
 
 ### 6.6 Cron versionado: ¿las rutas existen?
