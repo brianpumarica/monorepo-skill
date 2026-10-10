@@ -51,10 +51,12 @@ log "Respaldando '$DB_NAME' desde '$DB_CONTAINER'..."
 # cabecera que pg_dump siempre escribe. Un pg_dump que termina "bien" sin imprimir nada comprime a
 # 20 bytes: pasa las dos primeras y seria un backup vacio que parece sano. La cabecera se busca con
 # sustitucion de procesos (no con un pipe): con `pipefail`, un `grep -q` que corta la lectura le
-# daria SIGPIPE a gzip y marcaria como fallido un volcado grande y bueno.
+# daria SIGPIPE a gzip y marcaria como fallido un volcado grande y bueno. Su stderr va a /dev/null:
+# con SIGPIPE ignorado (sudo, cron) gzip escribiria "Broken pipe" en el log aunque todo salio bien,
+# y la integridad del archivo ya la comprobo `gzip -t`.
 if ! docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip -9 > "$DB_FILE" \
    || [ ! -s "$DB_FILE" ] || ! gzip -t "$DB_FILE" \
-   || ! grep -q 'PostgreSQL database dump' < <(gzip -dc "$DB_FILE"); then
+   || ! grep -q 'PostgreSQL database dump' < <(gzip -dc "$DB_FILE" 2>/dev/null); then
   log "❌ El volcado fallo o quedo vacio/corrupto."
   rm -f "$DB_FILE"
   exit 1
