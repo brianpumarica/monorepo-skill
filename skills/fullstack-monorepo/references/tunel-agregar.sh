@@ -4,6 +4,7 @@
 # llama con sudo. Ver ci-cd-deployment-pipeline.md §2.6 para la instalacion.
 #
 #   sudo tunel-agregar <repo>             # agrega api-<repo>.<dominio> -> http://localhost:<puerto>
+#                                         #   (o <TUNEL_HOST> si el .env del proyecto lo define)
 #   sudo tunel-agregar --quitar <repo>    # quita la ruta (solo si la creo este script)
 #
 # Por que es un script de root FUERA del repo y recibe solo el nombre del repo:
@@ -23,6 +24,11 @@
 #   4. `cloudflared tunnel route dns` (con el cert.pem de la configuracion: el runner no tiene el suyo).
 #   5. Reinicia cloudflared; si no queda activo, restaura la copia y lo reinicia otra vez.
 # Solo modifica entradas con su marcador "(tunel-agregar)": las que se escribieron a mano no se tocan.
+#
+# Nombre de la ruta: por defecto api-<repo>.<dominio>. Si el proyecto ya tenia otra ruta publica
+# (p. ej. api-<otro-nombre>), se define TUNEL_HOST=<host completo> en su .env del servidor. Se valida
+# igual que el resto: minusculas y UN solo nivel bajo el DOMINIO de /etc/tunel-agregar.conf. Un host
+# que ya existe a mano en el config (sin marcador) no se toca: con el mismo puerto no hace nada.
 #
 # Pruebas (sin root, sin servidor): variables CONFIG, CONF_FILE, ENV_BASE y TUNEL_SIN_ROOT=1.
 set -uo pipefail
@@ -59,6 +65,19 @@ printf '%s' "$DOMINIO" | grep -qE '^[a-z0-9.-]+$' || die "DOMINIO no valido en $
 host="api-$repo.$DOMINIO"
 [ -f "$CONFIG" ] || die "no existe $CONFIG"
 
+# .env del proyecto (puerto, prefijo y, opcional, TUNEL_HOST). Con --quitar puede no existir.
+envf="$ENV_BASE/$repo_in/.env"
+[ -f "$envf" ] || envf="$ENV_BASE/$repo/.env"
+leer_env() { [ -f "$envf" ] && grep -m1 "^$1=" "$envf" | cut -d= -f2- | tr -d '"\r'; }
+tunel_host=$(leer_env TUNEL_HOST || true)
+if [ -n "$tunel_host" ]; then
+  etiqueta=${tunel_host%".$DOMINIO"}
+  [ "$etiqueta" != "$tunel_host" ] || die "TUNEL_HOST ('$tunel_host') debe terminar en .$DOMINIO"
+  printf '%s' "$etiqueta" | grep -qE '^[a-z0-9]([a-z0-9-]{0,60}[a-z0-9])?$' \
+    || die "TUNEL_HOST no valido: minusculas y un solo nivel bajo $DOMINIO (sin puntos extra)."
+  host=$tunel_host
+fi
+
 # El 2>/dev/null va en el grupo { }: pegado al `exec` quedaria aplicado al resto del script y se
 # perderian todos los mensajes de error posteriores (el script saldria con 1 sin decir por que).
 { exec 9>"${CONFIG}.lock"; } 2>/dev/null || exec 9>"/tmp/tunel-agregar.lock"
@@ -94,10 +113,7 @@ if [ "$modo" = quitar ]; then
   accion="quitar"
 else
   # 1b. Puerto y prefijo: del .env del proyecto, y deben estar publicados por un contenedor suyo.
-  envf="$ENV_BASE/$repo_in/.env"
-  [ -f "$envf" ] || envf="$ENV_BASE/$repo/.env"
   [ -f "$envf" ] || die "no encuentro el .env del proyecto en $ENV_BASE/$repo_in/"
-  leer_env() { grep -m1 "^$1=" "$envf" | cut -d= -f2- | tr -d '"\r'; }
   puerto=$(leer_env BACKEND_HOST_PORT); prefijo=$(leer_env PROJECT_PREFIX)
   printf '%s' "$puerto" | grep -qE '^[0-9]{4,5}$' || die "BACKEND_HOST_PORT no valido en $envf: '$puerto'"
   [ "$puerto" -ge 1024 ] && [ "$puerto" -le 65535 ] || die "puerto fuera de rango: $puerto"

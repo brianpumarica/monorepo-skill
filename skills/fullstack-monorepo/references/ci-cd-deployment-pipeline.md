@@ -370,12 +370,23 @@ lugar, [`tunel-agregar.sh`](./tunel-agregar.sh) se instala **una vez** en el ser
 - el dominio sale de `/etc/tunel-agregar.conf` (root), no del llamador;
 - el puerto sale del `.env` del proyecto, y **tiene que estar publicado por un contenedor
   `<PROJECT_PREFIX>-*` en marcha** (no se enruta a un puerto cualquiera);
+- el nombre es `api-<repo>.<dominio>`, salvo que el `.env` del proyecto en el servidor defina
+  `TUNEL_HOST=<host completo>` (para un proyecto que **ya tenía** otra ruta pública). Se valida
+  igual: minúsculas, termina en el `DOMINIO` de la configuración y **un solo nivel** debajo;
 - solo toca entradas con su marcador `(tunel-agregar)`; las que escribiste a mano no se modifican
   ni se quitan;
 - es idempotente: si la ruta ya está con el mismo puerto **no hace nada, ni reinicia** (el reinicio
   de `cloudflared` corta unos segundos a todos los proyectos);
 - valida con `ingress validate` **antes** de reemplazar, guarda copia (`config.yml.bak-*`, las 10
   últimas) y, si `cloudflared` no queda activo tras reiniciar, **restaura** la copia.
+
+> [!IMPORTANT]
+> **Este paso es para proyectos nuevos o con ruta `api-<repo>`.** En un proyecto que ya tenía otra
+> ruta, sin `TUNEL_HOST` el deploy crearía una ruta nueva + su CNAME y **reiniciaría `cloudflared`**
+> (unos segundos sin servicio para todos). Dos formas seguras: definir `TUNEL_HOST` con la ruta
+> real (si coincide con el config a mano y el puerto es el mismo, no hace nada ni reinicia; si el
+> puerto difiere, falla y pide corregirlo a mano), o no poner el paso en ese `deploy.yml`.
+> Además el script necesita `PROJECT_PREFIX` en el `.env` del servidor: sin él, el job queda rojo.
 
 > [!NOTE]
 > Honestidad sobre el alcance: `github-runner` ya pertenece al grupo `docker`, que equivale a
@@ -519,7 +530,8 @@ del Tunnel.
    ([`puertos.md`](./puertos.md) §2).
 4. **Ruta del Tunnel para el Backend.** Si el servidor tiene `tunel-agregar` instalado (§2.6), **el
    deploy la registra solo** (paso "Register Cloudflare Tunnel route", con el puerto del `.env`) y
-   no hay nada que hacer. A mano, solo en un servidor sin él:
+   no hay nada que hacer (si la ruta pública ya existía con otro nombre, agregar `TUNEL_HOST` al
+   `.env` del servidor: §2.6). A mano, solo en un servidor sin él:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
    - hostname: api-<proyecto>.<dominio>
