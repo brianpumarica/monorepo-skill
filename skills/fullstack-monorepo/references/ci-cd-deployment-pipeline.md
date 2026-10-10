@@ -69,6 +69,9 @@ jobs:
       - name: Load production environment file (.env)
         env:
           ENV_STORE: /home/github-runner/env-backups/${{ github.event.repository.name }}/.env
+          # Solo SUMA: ademas se exige toda *_PASSWORD / *_SECRET / *_KEY de .env.example que traiga
+          # un valor de ejemplo. Una lista escrita a mano se desactualiza (asi se colo una clave
+          # de base de ejemplo en produccion: la lista no la incluia).
           REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET POSTGRES_PASSWORD"   # ajustar por proyecto
         run: |
           if [ ! -f "$ENV_STORE" ]; then
@@ -81,9 +84,12 @@ jobs:
           cp "$ENV_STORE" .env
           chmod 600 .env
           # Vacio, "admin" o igual al valor de .env.example = credencial de ejemplo en produccion.
-          for var in $REQUIRED_SECRETS; do
+          # Las derivadas solo cuentan si el ejemplo trae valor (una *_KEY opcional va vacia en el
+          # ejemplo y no se exige); las NEXT_PUBLIC_* / VITE_* son publicas por definicion.
+          derived=$(tr -d '\r' < .env.example | sed -n 's/^\([A-Za-z0-9_]*_\(PASSWORD\|SECRET\|KEY\)\)=..*/\1/p' | grep -v '^\(NEXT_PUBLIC\|VITE\)_' || true)
+          for var in $(printf '%s\n' $REQUIRED_SECRETS $derived | sort -u); do
             value=$(grep -m1 "^${var}=" .env | cut -d= -f2-)
-            example=$(grep -m1 "^${var}=" .env.example | cut -d= -f2-)
+            example=$(grep -m1 "^${var}=" .env.example | cut -d= -f2- | tr -d '\r')
             if [ -z "$value" ] || [ "$value" = "admin" ] || [ "$value" = "$example" ]; then
               echo "❌ $var is empty or has an example value in $ENV_STORE"
               exit 1
