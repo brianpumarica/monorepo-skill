@@ -70,14 +70,15 @@ for caso in 'vacio (pg_dump termina bien pero no imprime nada)|' 'sin la cabecer
   igual "  no deja el archivo" 0 "$(dbs | wc -l | tr -d ' ')"
   contiene "  avisa" "$(cat "$AVISOS")" 'Backup de demo fallo'
 done
-estado_limpio; GRANDE="-- PostgreSQL database dump"$'\n'"$(head -c 400000 /dev/zero | tr '\0' 'x')"
-backup DOCKER_DUMP="$GRANDE"
+estado_limpio; GRANDE="$T/dump-grande.sql"   # en archivo: Linux no acepta 400 KB en una variable de entorno
+{ echo "-- PostgreSQL database dump"; head -c 400000 /dev/zero | tr '\0' 'x'; } > "$GRANDE"
+backup DOCKER_DUMP_FILE="$GRANDE"
 igual "volcado GRANDE (400 KB): sale con 0 (la verificacion no da falsos fallos por SIGPIPE)" 0 "$ST"
 igual "  queda el volcado" 1 "$(dbs | wc -l | tr -d ' ')"
 # Con SIGPIPE ignorado (como bajo sudo/cron en la Pi) gzip no muere callado: escribe
 # "Broken pipe" en el log, que parece un error aunque el backup salio bien.
 estado_limpio
-OUT=$(trap '' PIPE; env PATH="$STUBS:$PATH" BACKUP_DIR="$BK" AVISAR="$T/avisar-ok.sh" DOCKER_PS="demo-database|" DOCKER_DUMP="$GRANDE" bash "$T/backup.sh" 2>&1 < /dev/null); ST=$?
+OUT=$(trap '' PIPE; env PATH="$STUBS:$PATH" BACKUP_DIR="$BK" AVISAR="$T/avisar-ok.sh" DOCKER_PS="demo-database|" DOCKER_DUMP_FILE="$GRANDE" bash "$T/backup.sh" 2>&1 < /dev/null); ST=$?
 igual "volcado GRANDE con SIGPIPE ignorado: sale con 0" 0 "$ST"
 no_contiene "  el log no trae 'Broken pipe' de gzip" "$OUT" 'Broken pipe'
 estado_limpio; instalar

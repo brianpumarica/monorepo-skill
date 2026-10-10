@@ -6,6 +6,8 @@
 #   DOCKER_FALLA       si no esta vacia, ese `docker exec ... psql` sale con 1
 #   FAKE_<VAR>         valor que devuelve `docker exec <c> printenv <VAR>` (p. ej. FAKE_POSTGRES_USER)
 #   DOCKER_DUMP        texto que imprime `pg_dump` (por defecto un volcado minimo)
+#   DOCKER_DUMP_FILE   archivo cuyo contenido imprime `pg_dump` (para volcados grandes: Linux
+#                      no acepta una variable de entorno de mas de 128 KB)
 #   DOCKER_DUMP_FALLA  `pg_dump` imprime un error y sale con 1
 #   DOCKER_IMAGE       lo que devuelve `docker inspect` (por defecto postgres:16)
 #   DOCKER_RUN_FALLA   `docker run ...` (copia de archivos) sale con 1
@@ -35,7 +37,8 @@ case "$1" in
         ;;
       *pg_dump*)
         if [ -n "${DOCKER_DUMP_FALLA:-}" ]; then echo "pg_dump: error: conexion rechazada" >&2; exit 1; fi
-        if [ -n "${DOCKER_DUMP+x}" ]; then printf '%s' "$DOCKER_DUMP"
+        if [ -n "${DOCKER_DUMP_FILE:-}" ]; then cat "$DOCKER_DUMP_FILE"
+        elif [ -n "${DOCKER_DUMP+x}" ]; then printf '%s' "$DOCKER_DUMP"
         else printf -- '-- PostgreSQL database dump\nCREATE TABLE t (id int);\n'; fi
         exit 0
         ;;
