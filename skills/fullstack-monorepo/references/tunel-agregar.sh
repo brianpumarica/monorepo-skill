@@ -59,7 +59,9 @@ printf '%s' "$DOMINIO" | grep -qE '^[a-z0-9.-]+$' || die "DOMINIO no valido en $
 host="api-$repo.$DOMINIO"
 [ -f "$CONFIG" ] || die "no existe $CONFIG"
 
-exec 9>"${CONFIG}.lock" 2>/dev/null || exec 9>"/tmp/tunel-agregar.lock"
+# El 2>/dev/null va en el grupo { }: pegado al `exec` quedaria aplicado al resto del script y se
+# perderian todos los mensajes de error posteriores (el script saldria con 1 sin decir por que).
+{ exec 9>"${CONFIG}.lock"; } 2>/dev/null || exec 9>"/tmp/tunel-agregar.lock"
 command -v flock >/dev/null 2>&1 && flock -w 60 9
 
 # Puerto actual de la entrada de $host en el config ("" si no esta).
