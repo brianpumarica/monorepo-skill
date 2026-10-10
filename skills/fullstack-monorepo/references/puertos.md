@@ -55,8 +55,9 @@ Un proyecto nuevo, en orden:
    contenedor) que nadie usa ni tiene reservados, y el próximo horario de backup libre.
 3. **Crear el `.env`** con `crear-env.sh`: **él mismo asigna esos puertos libres** a las
    `*_HOST_PORT` que están vacías en `.env.example` (no hay que escribirlos). Dejar esas variables
-   vacías en la plantilla, y con valor solo las que de verdad son fijas. El horario va en la línea de
-   `scripts/crontab`.
+   vacías en la plantilla, y con valor solo las que de verdad son fijas. Si el frontend va a Vercel,
+   no dejar `FRONTEND_HOST_PORT=` en la plantilla: se le asignaría un puerto que nadie publica
+   (`docker-compose-recipes.md`, nota de «Puertos»). El horario va en la línea de `scripts/crontab`.
 4. **Volver a correr el deploy.** El paso `chequear-host.sh` verifica que nada cambió desde el
    paso 2 y **falla antes de bajar nada** si un puerto ya es de otro proyecto.
 
