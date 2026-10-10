@@ -802,7 +802,11 @@ legible por otros. Para un `.env` o cualquier cosa con secretos, `-m 600`.
 - **Problem**: `invalid API endpoint: "C:/Program Files/Git/orgs/…"`.
 - **Causa**: Git Bash convierte los argumentos que empiezan con `/` en rutas de archivo de Windows.
 - **Solution**: omitir la barra inicial (`gh api orgs/<org>/actions/runners`) o anteponer
-  `MSYS_NO_PATHCONV=1` al comando. Vale igual para `vercel api /v9/…`.
+  `MSYS_NO_PATHCONV=1` al comando (sin barra: **probado en producción**). Vale igual para
+  `vercel api /v9/…`.
+- **Y en PowerShell**: los `--jq` con comillas dobles adentro (`"\(.name)  \(.status)"`) se rompen
+  (`accepts 1 arg(s), received 2`), y un `<org>` sin reemplazar es una redirección. Estos comandos
+  son para Git Bash.
 
 ---
 
@@ -936,6 +940,8 @@ gh run view <id> --json jobs \
 > **`repos/<owner>/<repo>/actions/runners` no lista los runners de la organización**: devuelve
 > vacío aunque el runner exista y ande (da un falso «no hay runner»). Para saber qué runner
 > hizo una corrida: `gh api repos/<owner>/<repo>/actions/runs/<id>/jobs --jq '.jobs[] | "\(.name)  \(.runner_name)"'`.
+> **Probado en producción:** `orgs/…` listó el runner (`online`) y `repos/…` dio `total_count` 0;
+> `runner_name` mostró el runner propio en el job del backend y uno de GitHub en el de Vercel.
 
 Las dos causas, ambas silenciosas: el repositorio **no está bajo la organización** dueña del
 runner (§5.1), o las **etiquetas del `runs-on` no coinciden** con las del runner real.
@@ -1117,6 +1123,11 @@ SHA=$(gh api repos/<org>/<repo>/git/ref/heads/main --jq .object.sha)
 gh api -X POST  repos/<org>/<repo>/git/refs -f ref=refs/heads/develop -f sha="$SHA"     # si no existe
 gh api -X PATCH repos/<org>/<repo>/git/refs/heads/develop -f sha="$SHA"                 # si existe
 ```
+
+**Probado en producción** (en un repo descartable): con un commit propio en `develop`, el `PATCH`
+sin `force` falla con `422 Update is not a fast forward` y no la pisa. El `rename` de rama responde
+al instante con el nombre nuevo, pero durante unos segundos la lista de ramas muestra **las dos**:
+esperar antes de comprobarlo.
 
 **Clones locales** (también los que tienen cambios sin commitear: no se tocan los archivos):
 
