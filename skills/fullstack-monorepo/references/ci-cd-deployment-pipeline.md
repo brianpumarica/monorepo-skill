@@ -568,6 +568,74 @@ espera `healthy` y corre el smoke test (con rollback si falla). Después se publ
 Vercel. Confirmar con `curl https://api-<proyecto>.<dominio>/api/health` (la versión que devuelve
 es la del commit, §8).
 
+### 3.2 Runbook: Migrar un Proyecto Existente a la Plantilla
+
+§3.1 es para un proyecto nuevo. Un proyecto que **ya corre en producción** tiene tres riesgos
+que el nuevo no tiene: un `.env` en el servidor con nombres viejos, una ruta pública que ya existe
+y usuarios conectados. Recorrido aplicado a siete repos de un mismo servidor, sin cortar ninguno.
+
+**Orden: de menor a mayor riesgo.** Empezar por el proyecto con menos usuarios y más fácil de
+reponer; dejar para el final el que no admite caída. Cada uno enseña algo para el siguiente.
+
+**Por proyecto:**
+
+1. **Rama de trabajo** `fix/ops-<tema>` (nunca directo a producción) y un solo PR por proyecto.
+2. Traer la plantilla: `chequear-host.sh`, backup previo, tag por commit con rollback,
+   `verificar-backup.sh` en el `scripts/crontab`, puertos de contenedor en `127.0.0.1`.
+3. Aplicar los puentes de «`.env` del servidor con nombres viejos» (abajo) **antes** del merge.
+4. Merge del PR: esto despliega. Seguir la corrida **del commit de merge**, no «la última de la
+   lista» (puede ser una corrida vieja, verde o roja, de otro commit):
+   ```bash
+   gh run list --workflow=deploy.yml --branch main --limit 3      # buscar el commit del merge
+   gh run watch <id-de-esa-corrida> --exit-status
+   ```
+5. Comprobar la **URL pública** (`curl -fsS https://api-<proyecto>.<dominio>/<HEALTH_PATH>`),
+   no solo el job verde: es lo que ve el usuario (§8).
+6. Recién con ese proyecto sano, pasar al siguiente.
+
+**El primer deploy migrado no tiene rollback.** `last-good-tag` todavía no existe: si la
+verificación falla, el servicio queda caído y se arregla a mano (§2.1). Hacerlo en horario de poca
+actividad, con el backup manual hecho y a la vista. El rollback queda armado desde el segundo deploy.
+
+**Cambiar el nombre de la imagen deja la vieja huérfana.** La poda borra solo imágenes con la
+etiqueta del proyecto; la imagen con el nombre anterior no la tiene y se queda ocupando disco.
+Después de verificar el deploy: `docker images` y `docker rmi <imagen-vieja>` a mano.
+
+**`.env` del servidor sin `PROJECT_PREFIX` o con nombres viejos.** El `.env` de producción no se
+toca con un push, así que la plantilla tiene que convivir con él hasta que se actualice:
+
+- En el workflow, un puente: `env: PROJECT_PREFIX: <prefijo>` en los pasos que lo necesitan y
+  `PORT_VARS: "BACKEND_PORT DB_PORT"` para que `chequear-host.sh` mire las variables viejas.
+- En el compose, `${NUEVO:-${VIEJO}}` (p. ej. `${BACKEND_HOST_PORT:-${BACKEND_PORT}}`) para que
+  levante con cualquiera de los dos nombres.
+- Con el proyecto ya sano, agregar al `.env` del servidor los nombres nuevos **conservando dueño y
+  permisos** (`sudo -u github-runner` en el comando que lo edita; con `sudo nano` o `sudo tee` el
+  archivo pasa a `root` y el runner deja de poder leerlo). Con los nombres nuevos en su lugar,
+  quitar los puentes en un segundo PR.
+
+**`127.0.0.1` tiene excepciones.** El estándar ata a `127.0.0.1` todo lo que no sea el túnel, pero un
+servicio que se usa **a propósito** desde la red local (un atajo del celular que llama a un
+puerto de la Pi) queda en `0.0.0.0`. Leer el README del proyecto antes de atarlo, y si queda
+abierto, que tenga un secreto propio (`*_SECRET`) en vez de depender de la red.
+
+**Un backend sin `/health`.** Si la API no tiene un endpoint de salud, no inventarlo en la
+migración: apuntar `HEALTH_PATH`, el `healthcheck` y el smoke test a una **ruta pública que
+responda** (la raíz) y anotar en `PENDIENTES` que falta el endpoint (contrato, §9). Con la raíz
+solo se prueba que el proceso atiende, no que llegue a la base.
+
+**Instalar un archivo en el servidor desde una terminal web** (sin SSH ni copiar archivos): codificar
+en la máquina de desarrollo y pegar **una línea**:
+
+```bash
+# máquina de desarrollo
+base64 -w0 scripts/avisar.sh        # (macOS: base64 -i scripts/avisar.sh)
+# servidor: pegar el resultado entre las comillas
+echo '<base64>' | base64 -d | sudo install -o github-runner -g github-runner -m 755 /dev/stdin /home/github-runner/avisar.sh
+```
+
+`install` crea el archivo con dueño y permiso en un solo paso: no queda una ventana con el archivo
+legible por otros. Para un `.env` o cualquier cosa con secretos, `-m 600`.
+
 ---
 
 ## 4. Critical Deployment Pitfalls & Applied Solutions
