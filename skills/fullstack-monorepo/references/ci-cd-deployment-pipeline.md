@@ -552,7 +552,7 @@ del Tunnel.
    > Si el proyecto ya tiene base, el `POSTGRES_PASSWORD` real se copia a mano antes: la base ya
    > fue creada con esa clave.
 3. **Horario del backup**: si el repo trae `scripts/crontab`, elegir la franja libre con
-   `sudo -u github-runner bash …/scripts/chequear-host.sh libre` y ponerla en la línea del crontab
+   `sudo bash …/scripts/chequear-host.sh libre` (con `sudo` ve el crontab de **todos** los usuarios) y ponerla en la línea del crontab
    ([`puertos.md`](./puertos.md) §2).
 4. **Ruta del Tunnel para el Backend.** Si el servidor tiene `tunel-agregar` instalado (§2.6), **el
    deploy la registra solo** (paso "Register Cloudflare Tunnel route", con el puerto del `.env`) y

@@ -49,10 +49,13 @@ Un proyecto nuevo, en orden:
    en el workspace del runner.
 2. **Elegir puertos y horario libres**, desde el workspace:
    ```bash
-   sudo -u github-runner bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/chequear-host.sh alta
+   sudo bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/chequear-host.sh alta
    ```
    Imprime `BACKEND_HOST_PORT`, `DB_HOST_PORT` (y `FRONTEND_HOST_PORT` si el frontend va en
-   contenedor) que nadie usa ni tiene reservados, y el próximo horario de backup libre.
+   contenedor) que nadie usa ni tiene reservados, y el próximo horario de backup libre. Va con
+   `sudo` (no como `github-runner`): así lee el crontab de **todos** los usuarios, no solo el suyo;
+   sin root avisa que solo miró el propio (como `github-runner`, un backup de otro usuario a esa
+   misma hora no se veía y lo proponía como libre).
 3. **Crear el `.env`** con `crear-env.sh`: **él mismo asigna esos puertos libres** a las
    `*_HOST_PORT` que están vacías en `.env.example` (no hay que escribirlos). Dejar esas variables
    vacías en la plantilla, y con valor solo las que de verdad son fijas. Si el frontend va a Vercel,

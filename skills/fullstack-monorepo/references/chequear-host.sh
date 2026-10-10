@@ -34,6 +34,7 @@ RANGO_DB=${RANGO_DB:-5400-5499}
 SLOT_INICIO=${SLOT_INICIO:-180}    # 03:00, en minutos desde medianoche
 SLOT_PASO=${SLOT_PASO:-10}         # un backup cada 10 minutos
 SLOT_MAX=${SLOT_MAX:-360}          # hasta las 06:00
+CRON_DIR=${CRON_DIR:-/var/spool/cron/crontabs}   # crontabs de todos los usuarios (solo root los lee)
 
 # El script vive en <repo>/scripts/: trabajar siempre desde la raiz del repo, se llame desde donde se
 # llame (el log del deploy imprime la ruta completa para pegarla desde cualquier carpeta).
@@ -109,9 +110,13 @@ puerto_libre() {
   return 1
 }
 
-# Minutos desde medianoche de cada linea de backup de OTROS proyectos en el crontab del usuario.
+# Minutos desde medianoche de cada linea de backup de OTROS proyectos. Con root se leen los
+# crontabs de TODOS los usuarios (un proyecto que despliega con otro usuario tiene su backup en el
+# crontab de ese usuario); sin root, solo el del usuario que corre esto.
+todos_los_cron() { [ -r "$CRON_DIR" ] && [ -x "$CRON_DIR" ]; }
 otros_horarios() {
-  crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep 'backup\.sh' | grep -v "$repo" \
+  { if todos_los_cron; then cat "$CRON_DIR"/* 2>/dev/null; else crontab -l 2>/dev/null; fi; } \
+    | grep -v '^[[:space:]]*#' | grep 'backup\.sh' | grep -v "$repo" \
     | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print $2 * 60 + $1 }'
 }
 fmt() { printf '%02d:%02d' $(($1 / 60)) $(($1 % 60)); }
@@ -135,6 +140,7 @@ horario() {
 
 libre() {
   local t=$SLOT_INICIO
+  todos_los_cron || echo "ℹ️  Solo se miro el crontab de $(id -un): para ver los de todos los usuarios, correrlo con sudo."
   while [ "$t" -lt "$SLOT_MAX" ]; do
     [ -z "$(choca "$t")" ] && { echo "Proximo horario libre: $(fmt "$t")  ->  linea del crontab: $((t % 60)) $((t / 60)) * * *"; return 0; }
     t=$((t + SLOT_PASO))

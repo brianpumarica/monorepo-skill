@@ -2,7 +2,7 @@
 # Pruebas de references/chequear-host.sh: puertos ajenos, reservas, procesos que escuchan, horarios.
 . "$(dirname "$0")/lib.sh"
 
-R="$T/mi-repo"; ENVB="$T/env"; CRON="$T/crontab"
+R="$T/mi-repo"; ENVB="$T/env"; CRON="$T/crontab"; CDIR="$T/crontabs"
 mkdir -p "$R/scripts" "$ENVB/otro"
 cp "$REF/chequear-host.sh" "$R/scripts/"
 
@@ -11,14 +11,14 @@ nuevo_estado() {
   printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=4100\nDB_HOST_PORT=4200\nFRONTEND_HOST_PORT=\n' > "$R/.env"
   printf 'BACKEND_HOST_PORT=4001\n' > "$ENVB/otro/.env"
   printf 'HOLA=1\n' > "$R/.env.example"
-  : > "$CRON"; rm -f "$R/scripts/crontab"
+  : > "$CRON"; rm -f "$R/scripts/crontab"; rm -rf "$CDIR"
   DOCKER_PS=""; SS_PUERTOS=""
 }
 # chequea [VAR=valor ...] -- args   (usa el estado actual; guarda OUT y ST)
 chequea() {
   local extra=()
   while [ "$1" != "--" ]; do extra+=("$1"); shift; done; shift
-  OUT=$(cd "$R" && env PATH="$STUBS:$PATH" DOCKER_PS="$DOCKER_PS" SS_PUERTOS="$SS_PUERTOS" CRONTAB_FILE="$CRON" \
+  OUT=$(cd "$R" && env PATH="$STUBS:$PATH" DOCKER_PS="$DOCKER_PS" SS_PUERTOS="$SS_PUERTOS" CRONTAB_FILE="$CRON" CRON_DIR="$CDIR" \
     ENV_BASE="$ENVB" "${extra[@]}" bash scripts/chequear-host.sh "$@" 2>&1)
   ST=$?
 }
@@ -98,5 +98,18 @@ titulo "libre: proximo horario sin choque"
 nuevo_estado; printf '0 3 * * * bash scripts/backup.sh\n10 3 * * * bash scripts/backup.sh\n' > "$CRON"; chequea -- libre
 contiene "propone un horario y la linea de crontab lista" "$OUT" 'Proximo horario libre: [0-9]{2}:[0-9]{2}  ->  linea del crontab: [0-9]+ [0-9]+ \* \* \*'
 no_contiene "no propone uno que choque con 03:00 ni 03:10" "$OUT" 'libre: 03:0[0-9]'
+contiene "sin acceso a los crontabs de otros usuarios: lo avisa" "$OUT" 'Solo se miro el crontab de'
+
+titulo "horario: crontabs de TODOS los usuarios (con root)"
+# Visto en la Pi: otro usuario tenia un backup a las 03:50 y 'alta' (como github-runner) lo propuso.
+nuevo_estado; mkdir -p "$CDIR"
+printf '# DO NOT EDIT\n0 3 * * * bash /x/a/scripts/backup.sh\n' > "$CDIR/github-runner"
+printf '10 3 * * * bash /home/otro/proyecto/scripts/backup.sh\n' > "$CDIR/otro-usuario"
+chequea -- libre
+no_contiene "no propone 03:10, que es de otro usuario" "$OUT" 'libre: 03:1[0-9]'
+contiene "propone 03:20" "$OUT" 'Proximo horario libre: 03:20'
+no_contiene "  sin el aviso de 'solo mi crontab'" "$OUT" 'Solo se miro'
+printf '10 3 * * * cd /x/mi-repo && bash scripts/backup.sh\n' > "$R/scripts/crontab"; chequea -- horario
+contiene "horario: avisa el choque con el backup de otro usuario" "$OUT" '::warning::.*03:10'
 
 terminar

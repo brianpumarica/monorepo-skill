@@ -196,7 +196,7 @@ cat <<EOF
    a. Primer push (falla A PROPOSITO en el paso del .env, pero deja el repo en el runner):
         git push origin HEAD
    b. En la Pi, elegir puertos y horario libres (puertos.md §2):
-        sudo -u github-runner bash /home/github-runner/actions-runner/_work/$NOMBRE/$NOMBRE/scripts/chequear-host.sh alta
+        sudo bash /home/github-runner/actions-runner/_work/$NOMBRE/$NOMBRE/scripts/chequear-host.sh alta
    c. En la Pi, crear el .env (genera los secretos) y poner esos puertos:
         sudo bash /home/github-runner/actions-runner/_work/$NOMBRE/$NOMBRE/scripts/crear-env.sh
    d. Ruta en Cloudflare Tunnel: api-$NOMBRE.$DOMINIO -> http://localhost:<BACKEND_HOST_PORT>
