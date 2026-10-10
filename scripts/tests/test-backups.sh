@@ -62,6 +62,18 @@ igual "pg_dump falla: sale con 1" 1 "$ST"
 contiene "  lo dice" "$OUT" 'El volcado fallo o quedo vacio/corrupto'
 igual "  no deja un volcado a medias" 0 "$(dbs | wc -l | tr -d ' ')"
 contiene "  avisa" "$(cat "$AVISOS")" 'Backup de demo fallo'
+for caso in 'vacio (pg_dump termina bien pero no imprime nada)|' 'sin la cabecera de pg_dump (texto cualquiera)|esto no es un volcado'; do
+  nombre=${caso%%|*}; contenido=${caso#*|}
+  estado_limpio; backup DOCKER_DUMP="$contenido"
+  igual "volcado $nombre: sale con 1 (un gzip de 20 bytes NO es un backup)" 1 "$ST"
+  contiene "  lo dice" "$OUT" 'El volcado fallo o quedo vacio/corrupto'
+  igual "  no deja el archivo" 0 "$(dbs | wc -l | tr -d ' ')"
+  contiene "  avisa" "$(cat "$AVISOS")" 'Backup de demo fallo'
+done
+estado_limpio; GRANDE="-- PostgreSQL database dump"$'\n'"$(head -c 400000 /dev/zero | tr '\0' 'x')"
+backup DOCKER_DUMP="$GRANDE"
+igual "volcado GRANDE (400 KB): sale con 0 (la verificacion no da falsos fallos por SIGPIPE)" 0 "$ST"
+igual "  queda el volcado" 1 "$(dbs | wc -l | tr -d ' ')"
 estado_limpio; instalar
 OUT=$(env PATH="$STUBS:$PATH" BACKUP_DIR="$BK" AVISAR="$T/no-existe.sh" DOCKER_PS="" bash "$T/backup.sh" 2>&1 < /dev/null); ST=$?
 igual "sin avisar.sh instalado: igual falla con el codigo original (1) y solo queda el log" 1 "$ST"

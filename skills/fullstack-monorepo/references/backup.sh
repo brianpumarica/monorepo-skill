@@ -47,8 +47,14 @@ chmod 700 "$BACKUP_DIR"
 # --- 1. Base de datos ---------------------------------------------------------
 DB_FILE="$BACKUP_DIR/db_${REPO_NAME}_${DATE}.sql.gz"
 log "Respaldando '$DB_NAME' desde '$DB_CONTAINER'..."
+# Tres comprobaciones sobre el resultado: que no este vacio, que sea un gzip valido y que traiga la
+# cabecera que pg_dump siempre escribe. Un pg_dump que termina "bien" sin imprimir nada comprime a
+# 20 bytes: pasa las dos primeras y seria un backup vacio que parece sano. La cabecera se busca con
+# sustitucion de procesos (no con un pipe): con `pipefail`, un `grep -q` que corta la lectura le
+# daria SIGPIPE a gzip y marcaria como fallido un volcado grande y bueno.
 if ! docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip -9 > "$DB_FILE" \
-   || [ ! -s "$DB_FILE" ] || ! gzip -t "$DB_FILE"; then
+   || [ ! -s "$DB_FILE" ] || ! gzip -t "$DB_FILE" \
+   || ! grep -q 'PostgreSQL database dump' < <(gzip -dc "$DB_FILE"); then
   log "❌ El volcado fallo o quedo vacio/corrupto."
   rm -f "$DB_FILE"
   exit 1
