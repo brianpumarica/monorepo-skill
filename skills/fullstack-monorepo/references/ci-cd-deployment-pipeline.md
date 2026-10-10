@@ -624,9 +624,10 @@ toca con un push, así que la plantilla tiene que convivir con él hasta que se 
 - En el compose, `${NUEVO:-${VIEJO}}` (p. ej. `${BACKEND_HOST_PORT:-${BACKEND_PORT}}`) para que
   levante con cualquiera de los dos nombres.
 - Con el proyecto ya sano, agregar al `.env` del servidor los nombres nuevos **conservando dueño y
-  permisos** (`sudo -u github-runner` en el comando que lo edita; con `sudo nano` o `sudo tee` el
-  archivo pasa a `root` y el runner deja de poder leerlo). Con los nombres nuevos en su lugar,
-  quitar los puentes en un segundo PR.
+  permisos**: editarlo como su dueño (`sudo -u github-runner` delante del comando) o con
+  `sudo nano` y después `sudo chown github-runner:github-runner`. **No con `sudo sed -i`**: recrea
+  el archivo como `root` y el runner deja de poder leerlo (deploy rojo). Con los nombres nuevos en
+  su lugar, quitar los puentes en un segundo PR.
 
 **`127.0.0.1` tiene excepciones.** El estándar ata a `127.0.0.1` todo lo que no sea el túnel, pero un
 servicio que se usa **a propósito** desde la red local (un atajo del celular que llama a un
