@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# curl falso para probar avisar.sh. CURL_LOG anota los argumentos; CURL_FALLA=1 hace que falle.
+echo "curl $*" >> "${CURL_LOG:-/dev/null}"
+[ -z "${CURL_FALLA:-}" ]

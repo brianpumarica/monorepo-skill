@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # docker falso para los tests.
-#   DOCKER_PS     lineas "nombre|puertos" que devuelve `docker ps` (formato {{.Names}}|{{.Ports}} o {{.Names}})
-#   DOCKER_LOG    donde anota cada `docker exec` y el SQL que recibe por stdin
-#   DOCKER_FALLA  si no esta vacia, `docker exec` sale con 1
+#   DOCKER_PS          lineas "nombre|puertos" que devuelve `docker ps` (formato {{.Names}}|{{.Ports}} o {{.Names}})
+#   DOCKER_ALL_LOG     si esta definido, anota CADA llamada ("docker <args>")
+#   DOCKER_LOG         anota los `docker exec -i ... psql` y el SQL que reciben por stdin
+#   DOCKER_FALLA       si no esta vacia, ese `docker exec ... psql` sale con 1
+#   FAKE_<VAR>         valor que devuelve `docker exec <c> printenv <VAR>` (p. ej. FAKE_POSTGRES_USER)
+#   DOCKER_DUMP        texto que imprime `pg_dump` (por defecto un volcado minimo)
+#   DOCKER_DUMP_FALLA  `pg_dump` imprime un error y sale con 1
+#   DOCKER_IMAGE       lo que devuelve `docker inspect` (por defecto postgres:16)
+#   DOCKER_RUN_FALLA   `docker run ...` (copia de archivos) sale con 1
+[ -z "${DOCKER_ALL_LOG:-}" ] || echo "docker $*" >> "$DOCKER_ALL_LOG"
 case "$1" in
   ps)
     case "$*" in
@@ -10,11 +17,34 @@ case "$1" in
       *'{{.Names}}'*) printf '%s\n' "${DOCKER_PS:-}" | grep -v '^$' | cut -d'|' -f1 ;;
     esac
     ;;
+  inspect)
+    echo "${DOCKER_IMAGE:-postgres:16}"
+    ;;
+  run)
+    [ -z "${DOCKER_RUN_FALLA:-}" ] || exit 1
+    printf 'archivo subido' | gzip
+    exit 0
+    ;;
   exec)
     shift
-    { echo "exec $*"; cat; } >> "${DOCKER_LOG:-/dev/null}"
-    [ -z "${DOCKER_FALLA:-}" ]
-    exit $?
+    case "$*" in
+      *printenv*)
+        v="FAKE_${!#}"
+        printf '%s\n' "${!v:-}"
+        exit 0
+        ;;
+      *pg_dump*)
+        if [ -n "${DOCKER_DUMP_FALLA:-}" ]; then echo "pg_dump: error: conexion rechazada" >&2; exit 1; fi
+        if [ -n "${DOCKER_DUMP+x}" ]; then printf '%s' "$DOCKER_DUMP"
+        else printf -- '-- PostgreSQL database dump\nCREATE TABLE t (id int);\n'; fi
+        exit 0
+        ;;
+      *)
+        { echo "exec $*"; cat; } >> "${DOCKER_LOG:-/dev/null}"
+        [ -z "${DOCKER_FALLA:-}" ]
+        exit $?
+        ;;
+    esac
     ;;
 esac
 exit 0
