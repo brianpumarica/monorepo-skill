@@ -194,7 +194,7 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 ├── packages/ (opcional)
 │   ├── types/                   # Interfaces TypeScript y esquemas Zod compartidos
 │   └── tsconfig/                # Configuraciones base de TypeScript
-├── docs/
+├── docs/                        # Fuera del alcance de esta skill: la arma una skill de documentación aparte (Fase 6)
 │   ├── architecture.md          # Diagramas de flujo y topología de contenedores
 │   ├── api-reference.md         # Endpoints, autenticación y payloads
 │   └── deployment.md            # Guía Raspberry Pi + Cloudflare Tunnel + Vercel
@@ -309,7 +309,11 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Encadenar el job del frontend al del backend con `needs:`.
 
 ### Fase 6: Documentación y Agentes
-- [ ] Generar `docs/architecture.md`, `docs/deployment.md` y `docs/api-reference.md`.
+- [ ] **`docs/` no lo genera esta skill.** `architecture.md`, `deployment.md`, `api-reference.md`
+  y demás `.md` de `docs/` los arma una skill de documentación aparte, en un paso propio. Acá no se
+  crean ni se reescriben: un `docs/` que falte se anota como pendiente de esa skill, no como desvío.
+  Lo que sí queda de esta skill es *qué tiene que constar* ahí (por ejemplo, la sonda de versión de
+  CI/CD §8 y el endpoint de salud): se le pasa a esa skill como insumo.
 - [ ] Actualizar `AGENTS.md` con la matriz activa de puertos y registro de skills.
 - [ ] Actualizar `README.md` con la guía de inicio rápido.
 - [ ] Validar sintaxis con `docker compose config` y tests de compilación.
@@ -323,7 +327,7 @@ Para evitar fallos de detección de archivos en montajes de volumen host (Window
 | Framework / Tool | Archivo Clave | Configuración Mandatoria |
 | :--- | :--- | :--- |
 | **Vite** (React / Vue) | `vite.config.ts` | `server: { host: '0.0.0.0', watch: { usePolling: true, interval: 100 } }` |
-| **Next.js** | `docker-compose.yml` | `environment: [WATCHPACK_POLLING=true]` + volumen anónimo `/app/.next` |
+| **Next.js** | `docker-compose.yml` + `next.config` | `environment: [WATCHPACK_POLLING=true]` + volumen anónimo `/app/.next`. **Con Turbopack (default de `next dev` desde Next 16) la variable no alcanza**: también `watchOptions: { pollIntervalMs: 1000 }` en `next.config`, condicionado a `process.env.WATCHPACK_POLLING === 'true'` para que no aplique fuera del contenedor. Verificado: sin eso, editar un archivo montado no recarga. |
 | **Express / TS** | `docker-compose.yml` | `environment: [CHOKIDAR_USEPOLLING=true]` + `"dev": "tsx watch src/index.ts"` |
 | **NestJS / TS** | `nodemon.json` | `{"watch": ["src"], "ext": "ts", "legacyWatch": true, "exec": "nest start"}` |
 | **Expo Web** | `docker-compose.yml` | `environment: [CHOKIDAR_USEPOLLING=true]` + volumen anónimo `/app/.expo` + `expo start --web --host lan` |

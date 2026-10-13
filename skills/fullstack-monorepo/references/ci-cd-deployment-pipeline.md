@@ -1158,7 +1158,8 @@ inadvertida durante semanas mientras la anterior sigue respondiendo.
    forma de confirmar que el job levanta *todos* los contenedores y no sólo el que da nombre al
    job.
 4. Dejar registrado en `docs/deployment.md` que esos marcadores son sondas de despliegue, con
-   qué reemplazarlos y qué endpoint es el healthcheck real.
+   qué reemplazarlos y qué endpoint es el healthcheck real. Ese archivo lo escribe la skill de
+   documentación (SKILL.md, Fase 6): este dato se le pasa como insumo.
 
 > El marcador puede quedarse: es inofensivo y sigue sirviendo para responder "¿qué versión está
 > arriba?" desde el catálogo de diagnóstico (§6.3).
