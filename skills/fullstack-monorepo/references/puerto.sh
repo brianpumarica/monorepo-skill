@@ -27,8 +27,12 @@ FIN=${PUERTOS_FIN:-4999}
 ANCHO=10
 touch "$REGISTRO"
 
-# ¿Hay algo escuchando en el puerto? Funciona igual en Git Bash, Linux y macOS (sin ss ni netstat).
-escuchando() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# ¿Hay algo escuchando en el puerto? ss si existe (Linux); si no, un intento de conexion en bash puro
+# (Git Bash y macOS no traen ss). El mismo criterio que chequear-host.sh.
+escuchando() {
+  if command -v ss >/dev/null 2>&1; then [ -n "$(ss -ltnH "sport = :$1" 2>/dev/null)" ]
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
+}
 
 bloque_de() { awk -F'\t' -v n="$1" '$1 == n { print $2 }' "$REGISTRO"; }
 dueno_de() { awk -F'\t' -v b="$1" '$2 == b { print $1 }' "$REGISTRO"; }
