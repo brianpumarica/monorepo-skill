@@ -107,17 +107,32 @@ jobs:
           # El entrypoint corre migraciones al arrancar el contenedor: el respaldo va ANTES
           # del `up`, no después. Sin SSH ni transferencia de archivos, una migración mala
           # sin volcado previo es irreversible.
+          # `run:` sin `shell:` es `bash -e` SIN pipefail: un pg_dump que falla dentro de
+          # `pg_dump | gzip` daría 0 y dejaría un gzip de 20 bytes.
+          set -o pipefail
           set -a; . ./.env; set +a
           DB="${PROJECT_PREFIX:-app}-database"
           # Subcarpeta propia: el backup diario (scripts/backup.sh) comparte la raiz y su
           # rotacion es otra; si compartieran carpeta, `tail -n +8` borraria los diarios.
           BACKUP_DIR="/home/github-runner/backups/${{ github.event.repository.name }}/pre-deploy"
           mkdir -p "$BACKUP_DIR"
-          if docker ps --format '{{.Names}}' | grep -qx "$DB"; then
+          # La lista entra por sustitución de procesos y no por un pipe: con pipefail, el
+          # `grep -q` que corta la lectura podría darle SIGPIPE a `docker ps` y el paso caería
+          # en "primer despliegue" con la base viva, sin respaldo y sin fallar.
+          if grep -qx "$DB" < <(docker ps --format '{{.Names}}'); then
             F="$BACKUP_DIR/$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}.sql.gz"
             # Sin `-t`: la TTY convierte LF en CRLF y corrompe el volcado.
-            docker exec "$DB" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip -9 > "$F"
-            [ -s "$F" ] || { echo "❌ El volcado salió vacío; se aborta el despliegue."; exit 1; }
+            # Las tres comprobaciones de scripts/backup.sh: no vacío, gzip válido y la cabecera
+            # que pg_dump siempre escribe (uno que sale 0 sin imprimir nada pasa las dos
+            # primeras). La cabecera, también por sustitución de procesos: en un pipe, el
+            # `grep -q` le daría SIGPIPE a gzip y tumbaría un volcado grande y bueno.
+            if ! docker exec "$DB" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip -9 > "$F" \
+               || [ ! -s "$F" ] || ! gzip -t "$F" \
+               || ! grep -q 'PostgreSQL database dump' < <(gzip -dc "$F" 2>/dev/null); then
+              echo "❌ El volcado falló o salió vacío; se aborta el despliegue."
+              rm -f "$F"
+              exit 1
+            fi
             echo "✅ Backup: $F ($(du -h "$F" | cut -f1))"
             # Retención: los últimos 7. En la SD del Pi, los volcados también llenan el disco.
             ls -1t "$BACKUP_DIR"/*.sql.gz | tail -n +8 | xargs -r rm --
