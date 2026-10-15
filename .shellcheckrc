@@ -1,0 +1,2 @@
+# Los test-*.sh cargan lib.sh con `. "$(dirname "$0")/lib.sh"`: buscarlo junto al script que lo carga.
+source-path=SCRIPTDIR

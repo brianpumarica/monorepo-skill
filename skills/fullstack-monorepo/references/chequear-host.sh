@@ -44,7 +44,11 @@ repo=${REPO_NAME:-$(basename "$PWD")}
 prefijo=""
 if [ "$modo" != alta ] && [ "$modo" != libre ]; then
   [ -f .env ] || { echo "❌ No hay .env en $PWD (el deploy lo copia antes de este paso)."; exit 1; }
-  set -a; . ./.env; set +a
+  set -a
+  # El .env existe solo en el servidor (lo copia el deploy).
+  # shellcheck source=/dev/null
+  . ./.env
+  set +a
   prefijo=${PROJECT_PREFIX:-}
 fi
 

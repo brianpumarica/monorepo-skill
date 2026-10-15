@@ -164,15 +164,23 @@ fi
 bak="$CONFIG.bak-$(date +%Y%m%d-%H%M%S)"
 cp -p "$CONFIG" "$bak"
 cat "$nuevo" > "$CONFIG"; rm -f "$nuevo"
-ls -1t "$CONFIG".bak-* 2>/dev/null | tail -n +11 | xargs -r rm --
+# Quedan las 10 copias mas nuevas. El nombre lleva la fecha (bak-AAAAMMDD-HHMMSS): el glob ya sale
+# ordenado de la mas vieja a la mas nueva, sin parsear `ls` ni partir rutas con espacios.
+copias=("$CONFIG".bak-*)
+[ ${#copias[@]} -le 10 ] || rm -f -- "${copias[@]:0:${#copias[@]}-10}"
 echo "✅ $accion: $host${puerto:+ -> localhost:$puerto}   (copia: $bak)"
 
 # 4. DNS (solo al agregar: no existe `route dns` para borrar; el CNAME se quita en el panel).
 if [ "$accion" = agregar ]; then
   if [ -n "$ORIGINCERT" ] && [ -f "$ORIGINCERT" ]; then
-    salida=$(cloudflared tunnel --origincert "$ORIGINCERT" route dns "$TUNEL" "$host" 2>&1) \
-      && echo "✅ DNS: $host -> tunel $TUNEL" \
-      || { case "$salida" in *"already exists"*) echo "ℹ️  DNS: el registro ya existia." ;; *) echo "⚠️  route dns fallo: $salida"; echo "   La ruta quedo en el config; crear el CNAME a mano o repetir." ;; esac; }
+    if salida=$(cloudflared tunnel --origincert "$ORIGINCERT" route dns "$TUNEL" "$host" 2>&1); then
+      echo "✅ DNS: $host -> tunel $TUNEL"
+    else
+      case "$salida" in
+        *"already exists"*) echo "ℹ️  DNS: el registro ya existia." ;;
+        *) echo "⚠️  route dns fallo: $salida"; echo "   La ruta quedo en el config; crear el CNAME a mano o repetir." ;;
+      esac
+    fi
   else
     echo "⚠️  Sin ORIGINCERT valido en $CONF_FILE: crear el CNAME a mano (cloudflared tunnel route dns $TUNEL $host)."
   fi

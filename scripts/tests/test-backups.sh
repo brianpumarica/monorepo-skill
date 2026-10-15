@@ -12,8 +12,10 @@ DALL="$T/docker-all.log"
 UP="/app/uploads"
 export DOCKER_ALL_LOG="$DALL" FAKE_POSTGRES_USER=app_user FAKE_POSTGRES_DB=app_db
 
-# Un avisar.sh falso: anota el mensaje que recibe.
+# Un avisar.sh falso: anota el mensaje que recibe. (El "$1" entre comillas simples es del script generado.)
+# shellcheck disable=SC2016
 printf '#!/usr/bin/env bash\necho "$1" >> "%s"\n' "$AVISOS" > "$T/avisar-ok.sh"; chmod +x "$T/avisar-ok.sh"
+# shellcheck disable=SC2016
 printf '#!/usr/bin/env bash\necho "$1" >> "%s"\nexit 1\n' "$AVISOS" > "$T/avisar-roto.sh"; chmod +x "$T/avisar-roto.sh"
 
 # instalar [con-archivos]: copia backup.sh ajustando las variables, como lo haria un repo.

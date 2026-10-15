@@ -50,10 +50,10 @@ igual "JWT_SECRET no se toco con 'db'" jwtviejo "$(valor dbx JWT_SECRET)"
 nueva=$(valor dbx POSTGRES_PASSWORD)
 contiene "DATABASE_URL lleva la clave nueva" "$(valor dbx DATABASE_URL)" "$nueva"
 no_contiene "el resumen no imprime secretos" "$OUT" "$nueva"
-existe_archivo "dejo el .env.bak" "$(ls "$ENVB"/dbx/.env.bak-* 2>/dev/null | head -1)"
+existe_archivo "dejo el .env.bak" "$(primero "$ENVB"/dbx/.env.bak-*)"
 contiene "el .env.bak guarda la clave vieja" "$(cat "$ENVB"/dbx/.env.bak-*)" 'vieja123'
 modo "el .env queda 600" "$ENVB/dbx/.env" 600
-modo "el .env.bak queda 600" "$(ls "$ENVB"/dbx/.env.bak-* | head -1)" 600
+modo "el .env.bak queda 600" "$(primero "$ENVB"/dbx/.env.bak-*)" 600
 
 titulo "PROJECT_PREFIX y modo all"
 rm -rf "$ENVB"; mk pf 'PROJECT_PREFIX=pf\n'

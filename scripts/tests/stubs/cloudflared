@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # cloudflared falso. CF_LOG anota cada llamada; CF_VALIDATE_FALLA=1 hace fallar `ingress validate`.
+# `route dns` imprime CF_DNS_SALIDA (si esta) y sale con 1 si CF_DNS_FALLA=1.
 echo "cloudflared $*" >> "${CF_LOG:-/dev/null}"
 case "$*" in
   *"ingress validate"*) [ -z "${CF_VALIDATE_FALLA:-}" ] ;;
+  *"route dns"*) [ -z "${CF_DNS_SALIDA:-}" ] || echo "$CF_DNS_SALIDA"; [ -z "${CF_DNS_FALLA:-}" ] ;;
   *) exit 0 ;;
 esac

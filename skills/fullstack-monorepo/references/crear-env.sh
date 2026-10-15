@@ -32,11 +32,11 @@ tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
 cp .env.example "$tmp"
 
 generados=()
-for var in $(grep -E '^[A-Z0-9_]*(_SECRET|_PASSWORD)=$' .env.example | cut -d= -f1); do
+while IFS= read -r var; do
   case "$var" in JWT_SECRET) valor=$(openssl rand -hex 32) ;; *) valor=$(openssl rand -hex 16) ;; esac
   sed -i "s|^${var}=\$|${var}=${valor}|" "$tmp"
   generados+=("$var")
-done
+done < <(grep -E '^[A-Z0-9_]*(_SECRET|_PASSWORD)=$' .env.example | cut -d= -f1)
 
 # Puertos libres para las *_HOST_PORT vacias de la plantilla.
 asignados=()

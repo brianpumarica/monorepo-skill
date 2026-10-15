@@ -40,7 +40,7 @@ contiene "queda en el config con su marcador" "$(cat "$CFG")" '# mi-repo \(tunel
 contiene "el bloque va ANTES del comentario del catch-all" "$(grep -n 'mi-repo\|Catch-all' "$CFG" | tr '\n' ' ')" 'mi-repo.*Catch-all'
 contiene "la ruta escrita a mano sigue intacta" "$(cat "$CFG")" 'api-legacy.ejemplo.test'
 igual "reinicio cloudflared una vez" 1 "$(reinicios)"
-existe_archivo "dejo copia de seguridad" "$(ls "$CFG".bak-* 2>/dev/null | head -1)"
+existe_archivo "dejo copia de seguridad" "$(primero "$CFG".bak-*)"
 
 titulo "idempotencia: la segunda corrida no reinicia"
 : > "$CF_LOG"; runx -- mi-repo
@@ -106,6 +106,41 @@ igual "puerto no publicado por un contenedor del proyecto: sale con 1" 1 "$ST"
 contiene "puerto no publicado: lo dice" "$OUT" "ningun contenedor 'app-\*' en marcha"
 reset; runx -- noexiste
 igual "repo sin .env: sale con 1" 1 "$ST"
+
+titulo "DNS: route dns solo con un ORIGINCERT valido"
+CERT="$T/cert.pem"; : > "$CERT"
+# dns [VAR=valor ...]  ->  agrega mi-repo con un cert que existe
+dns() { reset; sed -i "s#^ORIGINCERT=.*#ORIGINCERT=$CERT#" "$CONF"; runx "$@" -- mi-repo; }
+dns
+igual "sale con 0" 0 "$ST"
+contiene "crea el CNAME" "$OUT" '✅ DNS: api-mi-repo.ejemplo.test -> tunel t1'
+contiene "  con el cert de la configuracion" "$(cat "$CF_LOG")" '--origincert .*cert\.pem route dns t1 api-mi-repo\.ejemplo\.test'
+dns CF_DNS_FALLA=1 CF_DNS_SALIDA='Failed: record already exists'
+igual "el CNAME ya existia: sale con 0" 0 "$ST"
+contiene "  lo dice sin alarmar" "$OUT" 'el registro ya existia'
+no_contiene "  ni lo da por fallado" "$OUT" 'route dns fallo'
+dns CF_DNS_FALLA=1 CF_DNS_SALIDA='error de red'
+igual "otra falla del DNS: sale con 0 (la ruta ya quedo en el config)" 0 "$ST"
+contiene "  avisa con la salida de cloudflared" "$OUT" 'route dns fallo: error de red'
+no_contiene "  sin el ✅" "$OUT" '✅ DNS'
+reset; runx -- mi-repo
+contiene "sin ORIGINCERT valido: pide el CNAME a mano" "$OUT" 'Sin ORIGINCERT valido'
+no_contiene "  y no llama a route dns" "$(cat "$CF_LOG")" 'route dns'
+
+titulo "copias del config: quedan las 10 mas nuevas"
+# viejas <config>  ->  12 copias de 2020 (el nombre lleva la fecha)
+viejas() { local i; for i in 01 02 03 04 05 06 07 08 09 10 11 12; do echo "vieja $i" > "$1.bak-20200101-0000$i"; done; }
+reset; viejas "$CFG"; runx -- mi-repo
+copias=("$CFG".bak-*)
+igual "quedan 10" 10 "${#copias[@]}"
+no_existe_archivo "borra la mas vieja" "$CFG.bak-20200101-000001"
+no_existe_archivo "  y la tercera" "$CFG.bak-20200101-000003"
+existe_archivo "conserva la cuarta" "$CFG.bak-20200101-000004"
+existe_archivo "conserva la recien hecha" "$(printf '%s\n' "$OUT" | sed -n 's/.*(copia: \(.*\))$/\1/p')"
+reset; D="$T/con espacio"; mkdir -p "$D"; cp "$CFG" "$D/config.yml"; rm -f "$D"/config.yml.bak-*
+viejas "$D/config.yml"; runx CONFIG="$D/config.yml" -- mi-repo
+copias=("$D"/config.yml.bak-*)
+igual "con espacios en la ruta tambien rota" 10 "${#copias[@]}"
 
 titulo "seguridad ante fallas de cloudflared"
 reset; cp "$CFG" "$T/antes.yml"; runx CF_VALIDATE_FALLA=1 -- mi-repo

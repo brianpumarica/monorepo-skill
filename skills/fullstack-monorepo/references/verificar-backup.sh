@@ -23,6 +23,8 @@ if [ -n "$reciente" ]; then
   exit 0
 fi
 
+# ls -t alcanza: los nombres los pone backup.sh (sin espacios ni saltos de linea) y solo van al mensaje.
+# shellcheck disable=SC2012
 ultimo=$(ls -1t "$BACKUP_DIR"/db_"${REPO_NAME}"_*.sql.gz 2>/dev/null | head -1)
 if [ -n "$ultimo" ]; then detalle="el ultimo es $(basename "$ultimo")"; else detalle="no hay ninguno en $BACKUP_DIR"; fi
 msg="❌ $REPO_NAME: sin backup de menos de ${MAX_HORAS} h ($detalle). Revisar el cron y backup.log"

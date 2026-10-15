@@ -42,6 +42,8 @@ no_contiene() { if printf '%s\n' "$2" | grep -qE -- "$3"; then fail "$1" "aparec
 # existe_archivo / no_existe_archivo "descripcion" ruta
 existe_archivo() { if [ -e "$2" ]; then ok "$1"; else fail "$1" "no existe $2"; fi; }
 no_existe_archivo() { if [ -e "$2" ]; then fail "$1" "existe $2"; else ok "$1"; fi; }
+# primero <glob>  ->  la primera ruta del glob, o nada si no encontro ninguna (en vez de `ls | head -1`)
+primero() { if [ -e "${1:-}" ]; then printf '%s\n' "$1"; fi; }
 # modo "descripcion" ruta 600   (se omite en Windows)
 modo() {
   [ "$EN_WINDOWS" -eq 0 ] || { echo "  ⏭️  $1 (omitido: Windows no tiene modos)"; return 0; }

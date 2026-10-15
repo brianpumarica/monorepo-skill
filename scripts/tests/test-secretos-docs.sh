@@ -50,6 +50,8 @@ igual "las rutas del catalogo estan definidas una vez cada una" 2 "$(printf '%s\
 no_contiene "el bucle no repite rutas fijas" "$linea" '/home/github-runner'
 # El home del runner no es legible para el usuario comun: TODO acceso a esa ruta va con sudo, tambien
 # la comprobacion de existencia (sin ella el bucle marcaba a todos los repos como "SIN .env.example").
+# Es una regex: el \$ex va literal.
+# shellcheck disable=SC2016
 contiene "el bucle comprueba el .env.example con sudo (el home del runner no es legible)" "$linea" 'sudo test -f "\$ex"'
 printf '%s\n' "$linea" | sed "s#sudo ##g" > "$T/bucle-solo.sh"
 { printf '%s\n' "$rutas" | sed "s#/home/github-runner#$B#g"; cat "$T/bucle-solo.sh"; } > "$T/bucle.sh"

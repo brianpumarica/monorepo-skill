@@ -12,6 +12,8 @@ set -uo pipefail
 
 msg="${1:-aviso sin mensaje}"
 host=$(hostname)
+# Configuracion de cada servidor (AVISO_URL): no esta en el repo.
+# shellcheck source=/dev/null
 [ -f /home/github-runner/avisar.env ] && . /home/github-runner/avisar.env
 
 if [ -n "${AVISO_URL:-}" ]; then
