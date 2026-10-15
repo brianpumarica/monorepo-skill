@@ -334,6 +334,21 @@ tendría a dónde volver. Por eso ese paso guarda el tag **antes** de cargar el 
 un tag vacío. `docker compose` no tiene el problema: la variable del entorno del shell le gana al
 `.env` que lee por su cuenta.
 
+**Probado en producción** con un commit que compila y pasa el CI, pero cuyo `/api/health` responde
+503. "Verify" esperó los 150 s (30 × 5 s), vio el backend `unhealthy`, imprimió los logs y mostró
+`↩️  Revirtiendo a <SHA anterior>` y `⚠️  Rollback aplicado`. El job quedó rojo. "Promote", el
+cron y el job del frontend (`needs:`) no corrieron: `last-good-tag` siguió en el SHA anterior. El
+deploy siguiente (el revert) lo leyó como `PREVIOUS_TAG`, salió verde y lo pasó a su propio SHA.
+La URL pública estuvo caída unos 3 minutos: los 150 s de espera, más ~16 s para recrear los
+contenedores con la imagen anterior. Volvió a 200 unos 8 s después de «Rollback aplicado».
+
+- `rollback()` **no espera** a que la versión anterior quede `healthy`: dice «Rollback aplicado»
+  apenas termina el `up`. Si esa imagen tampoco arranca (por ejemplo, contra un esquema que ya
+  migró el commit roto), el log dice «aplicado» con producción caída. Después de un rollback, mirar
+  la URL de salud.
+- La prueba no tocó el esquema. El rollback vuelve la imagen, no la base: después de una
+  migración, lo que queda es el volcado previo de §2.2.
+
 ### 2.2 Respaldo previo y respaldo diario: dos carpetas
 
 El respaldo previo a migrar vive en `backups/<repo>/pre-deploy/` (retención: los últimos 7). El
