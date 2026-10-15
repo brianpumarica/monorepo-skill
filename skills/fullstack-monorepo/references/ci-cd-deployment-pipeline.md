@@ -195,9 +195,13 @@ jobs:
 
       - name: Promote version & prune project images
         run: |
+          # El tag se toma ANTES de cargar el .env: un `IMAGE_TAG=` ahí lo pisaría y dejaría
+          # last-good-tag vacío, sin destino para el próximo rollback (§2.1).
+          TAG="$IMAGE_TAG"
           set -a; . ./.env; set +a
+          [ -n "$TAG" ] || { echo "❌ IMAGE_TAG vacío: last-good-tag queda como estaba."; exit 1; }
           LAST_GOOD_FILE="/home/github-runner/env-backups/${{ github.event.repository.name }}/last-good-tag"
-          echo "$IMAGE_TAG" > "$LAST_GOOD_FILE"
+          echo "$TAG" > "$LAST_GOOD_FILE"
           # Host compartido: NUNCA `docker system prune`. Se poda sólo lo etiquetado como este
           # proyecto (build.labels, docker-compose-recipes.md §4.8). La imagen recién
           # promovida está en uso y nunca es candidata a poda.
@@ -322,6 +326,13 @@ Con un tag por commit, el rollback es re-levantar la etiqueta anterior. Las tres
 El archivo `last-good-tag` **se escribe recién después de que la verificación pasa**. Un despliegue
 fallido nunca se convierte en destino de rollback. Y la poda corre **después** de promover: podar
 antes borraría justo la imagen anterior que el rollback necesita.
+
+`IMAGE_TAG` **no va en el `.env`** ([contrato](./docker-compose-recipes.md) §0). Los pasos que
+hacen `. ./.env` lo pisarían: con un `IMAGE_TAG=` vacío (por ejemplo, copiado de `.env.example`
+por `crear-env.sh`), "Promote" escribiría un `last-good-tag` vacío y el rollback siguiente no
+tendría a dónde volver. Por eso ese paso guarda el tag **antes** de cargar el `.env`, y no promueve
+un tag vacío. `docker compose` no tiene el problema: la variable del entorno del shell le gana al
+`.env` que lee por su cuenta.
 
 ### 2.2 Respaldo previo y respaldo diario: dos carpetas
 

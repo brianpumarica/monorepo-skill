@@ -64,7 +64,7 @@ proyecto (§0.1).
 | `FRONTEND_DEV_IMAGE` | `acme-frontend-dev` |
 | `VOLUME_PGDATA_DEV_NAME` / `VOLUME_PGDATA_NAME` | `acme_pgdata-dev` / `acme_pgdata` |
 | `PROJECT_PREFIX` | `acme`: el prefijo del proyecto. El workflow lo lee para el contenedor de la base, la imagen del rollback y la etiqueta `com.proyecto` de la poda |
-| `IMAGE_TAG` | **No va en el `.env`**: lo fija el workflow al SHA del commit (`github.sha`). El compose lo usa con default `latest` |
+| `IMAGE_TAG` | **No va en el `.env`** (ni en `.env.example`): lo fija el workflow al SHA del commit (`github.sha`). El compose lo usa con default `latest`. En el `.env`, pisaría el SHA en los pasos que lo cargan ([CI/CD](./ci-cd-deployment-pipeline.md) §2.1) |
 
 > **Los nombres de variable son fijos; los valores llevan el prefijo del proyecto.** Variables
 > separadas para desarrollo y producción, nunca una sola: con una sola, el `.env` del servidor
