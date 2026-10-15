@@ -2,7 +2,8 @@
 # Pruebas de los fragmentos de shell que viven en ci-cd-deployment-pipeline.md. Se EXTRAEN del
 # markdown (no se copian aca): si alguien rompe el texto de la doc, este test falla.
 #   1. el paso del deploy que exige secretos reales (REQUIRED_SECRETS + los derivados de .env.example)
-#   2. el bucle de inspecciona §6.5 que compara el .env de cada repo contra su plantilla
+#   2. el bucle de inspecciona §6.5 que compara el .env de cada repo contra su plantilla (con las
+#      rutas que define el principio del catalogo, §6)
 . "$(dirname "$0")/lib.sh"
 
 # ---- 1. paso del deploy -------------------------------------------------------
@@ -41,12 +42,17 @@ igual ".env.example sin ninguna *_KEY (el grep sin resultado no mata el paso): p
 # ---- 2. bucle de inspecciona §6.5 ---------------------------------------------
 titulo "inspecciona §6.5: bucle sobre env-backups"
 B="$T/gr"
-linea=$(grep -E '^for r in \$\(sudo ls /home/github-runner/env-backups\)' "$CICD_MD" | head -1)
+linea=$(grep -E '^for r in \$\(sudo ls "\$\{ENV_BASE:\?\}"\)' "$CICD_MD" | head -1)
 [ -n "$linea" ] || { fail "no encontre el bucle de §6.5 en la doc"; terminar; exit 1; }
+# Las rutas salen de las variables del principio del catalogo (§6), no van fijas en el bucle.
+rutas=$(grep -E '^(RUNNER_WORK|ENV_BASE)=' "$CICD_MD")
+igual "las rutas del catalogo estan definidas una vez cada una" 2 "$(printf '%s\n' "$rutas" | grep -c .)"
+no_contiene "el bucle no repite rutas fijas" "$linea" '/home/github-runner'
 # El home del runner no es legible para el usuario comun: TODO acceso a esa ruta va con sudo, tambien
 # la comprobacion de existencia (sin ella el bucle marcaba a todos los repos como "SIN .env.example").
 contiene "el bucle comprueba el .env.example con sudo (el home del runner no es legible)" "$linea" 'sudo test -f "\$ex"'
-printf '%s\n' "$linea" | sed "s#sudo ##g; s#/home/github-runner#$B#g" > "$T/bucle.sh"
+printf '%s\n' "$linea" | sed "s#sudo ##g" > "$T/bucle-solo.sh"
+{ printf '%s\n' "$rutas" | sed "s#/home/github-runner#$B#g"; cat "$T/bucle-solo.sh"; } > "$T/bucle.sh"
 ws() { mkdir -p "$B/actions-runner/_work/$1/$1" "$B/env-backups/$1"; printf '%b' "$2" > "$B/actions-runner/_work/$1/$1/.env.example"; printf '%b' "$3" > "$B/env-backups/$1/.env"; }
 ws solo-key 'API_KEY=cambiame\nPORT=3000\n' 'API_KEY=cambiame\nPORT=3000\n'
 ws normal 'JWT_SECRET=x\nADMIN_PASSWORD=admin\nOPT_API_KEY=\n' 'JWT_SECRET=real\nADMIN_PASSWORD=admin\nOPT_API_KEY=\n'
@@ -61,5 +67,13 @@ contiene "clave opcional vacia: VACIO (no es un hallazgo critico)" "$OUT" '^norm
 no_contiene "NEXT_PUBLIC_* y VITE_* no se comparan" "$OUT" 'NEXT_PUBLIC|VITE_'
 contiene "avisa cuando falta el .env.example del workspace" "$OUT" '^sin-ws: SIN \.env\.example'
 no_contiene "sin ninguna variable secreta no imprime nada (el aviso de la doc: eso no es 'sano')" "$OUT" '^callado'
+
+titulo "inspecciona §6.5: sin pegar las rutas, el bucle se corta"
+OUT=$(env -u RUNNER_WORK -u ENV_BASE bash "$T/bucle-solo.sh" 2>&1)
+contiene "dice que falta la variable" "$OUT" 'ENV_BASE: parameter null or not set'
+no_contiene "no da un resultado falso" "$OUT" 'SIN \.env\.example|OK$|EJEMPLO$'
+OUT=$(env -u RUNNER_WORK ENV_BASE="$B/env-backups" bash "$T/bucle-solo.sh" 2>&1)
+contiene "con ENV_BASE pero sin RUNNER_WORK: dice que falta" "$OUT" 'RUNNER_WORK: parameter null or not set'
+no_contiene "y no marca a todos como SIN .env.example" "$OUT" 'SIN \.env\.example'
 
 terminar

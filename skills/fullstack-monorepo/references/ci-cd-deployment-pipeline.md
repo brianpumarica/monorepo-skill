@@ -943,6 +943,16 @@ Comandos **exclusivamente de lectura**, para ejecutar en el servidor y responder
 está producción realmente?" antes de proponer cualquier cambio. Ninguno modifica nada, así que se
 pueden pegar sin riesgo — también en una terminal web sin SSH.
 
+**Rutas del servidor.** Los comandos que leen el workspace del runner o el almacén de `.env`
+(§6.5 y §6.7) las toman de estas dos variables. Pegarlas primero en la terminal del servidor, y
+cambiarlas ahí si el runner vive en otra carpeta. Si faltan, el comando se corta con
+`parameter null or not set` en vez de dar un resultado falso:
+
+```bash
+RUNNER_WORK=/home/github-runner/actions-runner/_work   # workspace del runner: <repo>/<repo>/ adentro
+ENV_BASE=/home/github-runner/env-backups               # almacen de los .env de produccion: <repo>/.env
+```
+
 ### 6.0 Antes que nada: ¿el pipeline llegó a correr alguna vez?
 
 Todo corre desde la máquina de desarrollo, con `gh`. **Si nunca hubo un deploy exitoso, no hay
@@ -1017,10 +1027,11 @@ Un `.env` de producción con la contraseña o el secreto de `.env.example` deja 
 públicas (el repo es legible): pasó con `ADMIN_PASSWORD` y `JWT_SECRET`. Compara **cada**
 variable `*_PASSWORD` / `*_SECRET` / `*_KEY` contra la plantilla (salvo las `NEXT_PUBLIC_*` y
 `VITE_*`, públicas por definición) y **no imprime ningún valor**, solo el veredicto. Una línea por
-repo (reemplazar `<repo>`; el workspace tiene el `.env.example` del último deploy):
+repo (reemplazar `<repo>`; el workspace tiene el `.env.example` del último deploy; las rutas salen
+de las variables del principio de §6):
 
 ```bash
-sudo awk -F= 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print $1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' /home/github-runner/actions-runner/_work/<repo>/<repo>/.env.example /home/github-runner/env-backups/<repo>/.env
+sudo awk -F= 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print $1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "${RUNNER_WORK:?}/<repo>/<repo>/.env.example" "${ENV_BASE:?}/<repo>/.env"
 ```
 
 Salida esperada: `OK` en todas. `EJEMPLO` (igual a la plantilla, o `admin`) es un hallazgo
@@ -1035,7 +1046,7 @@ variable obligatoria también; en una API key opcional, no.
 Todos los repos del almacén, de una vez (una línea por variable, con el repo adelante):
 
 ```bash
-for r in $(sudo ls /home/github-runner/env-backups); do ex=/home/github-runner/actions-runner/_work/$r/$r/.env.example; sudo test -f "$ex" || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" /home/github-runner/env-backups/$r/.env; done
+for r in $(sudo ls "${ENV_BASE:?}"); do ex=${RUNNER_WORK:?}/$r/$r/.env.example; sudo test -f "$ex" || { echo "$r: SIN .env.example en el workspace"; continue; }; sudo awk -F= -v r="$r" 'BEGIN{q=sprintf("%c",39)} function val(l){sub(/^[^=]*=/,"",l);gsub("^[\"" q "]|[\"" q "]$","",l);return l} FNR==NR{if($1~/(_SECRET|_PASSWORD|_KEY)$/&&$1!~/^(NEXT_PUBLIC|VITE)_/)ej[$1]=val($0);next} ($1 in ej){v=val($0);print r": "$1, (v==""?"VACIO":(v=="admin"||v==ej[$1])?"EJEMPLO":"OK")}' "$ex" "$ENV_BASE/$r/.env"; done
 ```
 
 **Probado en producción** sobre seis repos: una o más líneas por repo, ningún valor impreso.
@@ -1077,10 +1088,10 @@ El almacén tiene que ser exactamente `env-backups/<repo>/.env` (más `last-good
 nadie lo lee: puede estar desactualizado y llevar credenciales vivas.
 
 ```bash
-sudo find /home/github-runner/env-backups -maxdepth 1 -type f                       # sueltos en la raíz
-sudo find /home/github-runner/env-backups -mindepth 2 -type f ! -name .env ! -name last-good-tag ! -name '.env.bak-*'   # archivos raros dentro de una carpeta
-sudo bash -c 'for d in /home/github-runner/env-backups/*/; do [ -f "${d}.env" ] || echo "sin .env: $d"; done'            # carpeta sin .env
-diff <(sudo ls /home/github-runner/env-backups) <(sudo ls /home/github-runner/actions-runner/_work | grep -v "^_")   # < env sin repo   > repo sin env
+sudo find "${ENV_BASE:?}" -maxdepth 1 -type f                       # sueltos en la raíz
+sudo find "${ENV_BASE:?}" -mindepth 2 -type f ! -name .env ! -name last-good-tag ! -name '.env.bak-*'   # archivos raros dentro de una carpeta
+sudo bash -c 'for d in "$1"/*/; do [ -f "${d}.env" ] || echo "sin .env: $d"; done' _ "${ENV_BASE:?}"            # carpeta sin .env
+: "${ENV_BASE:?}" "${RUNNER_WORK:?}"; diff <(sudo ls "$ENV_BASE") <(sudo ls "$RUNNER_WORK" | grep -v "^_")   # < env sin repo   > repo sin env
 ```
 
 Salida esperada: vacía en las tres primeras. En el `diff`, `<` es un `.env` de un repo que ya
