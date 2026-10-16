@@ -255,6 +255,30 @@ pero es invisible para `context: ./backend`.
    enlazadas: `diff <(ls .agents/skills) <(ls .claude/skills)`. Una skill que aparece en una sola
    de las dos no tiene junction y sólo la ve la mitad de los agentes.
 
+### Mantener al día la copia de esta skill
+
+Cada repo lleva su propia copia de `fullstack-monorepo` (y de las demás skills de esta suite que
+use) para que `analiza` revise contra las reglas vigentes. Una copia vieja no avisa: audita contra
+el estándar de cuando se instaló y deja pasar todo lo que se agregó después.
+
+- **Actualizar** (desde la raíz del repo): `npx skills update <skills> -p -y`, nombrando solo las
+  de esta suite (las del `skills-lock.json` con `"source": "brianpumarica/monorepo-skill"`). Sin
+  nombres actualiza también las de terceros. La CLI baja la versión **publicada en GitHub**: un
+  commit de la skill que no se subió no llega.
+- **Instalar en un repo que no la tiene:** `npx skills add brianpumarica/monorepo-skill --skill
+  fullstack-monorepo -a universal claude-code -y`. Solo con `-a claude-code` deja una copia
+  suelta en `.claude/skills` y nada en `.agents/skills`.
+- **Qué se commitea:** `.agents/skills/<skill>` y `skills-lock.json` siempre. La CLI crea el
+  junction de `.claude/skills/<skill>` con ruta absoluta; git guarda su contenido como archivos
+  comunes (segunda copia en el repo), salvo que `.claude/` esté en el `.gitignore`. Si el repo ya
+  versiona `.claude/skills/<skill>` como enlace simbólico relativo (modo `120000`), restaurarlo con
+  `git checkout --` en vez de commitear el junction. Si `.agents/` está ignorado, `git add -f`:
+  la skill tiene que viajar con el repo.
+- **Merge sin redeploy:** el cambio no toca la app, así que el commit del merge lleva `[skip ci]`
+  en el título y el `push` a `main` no dispara `deploy.yml`.
+- **Verificar:** `diff -rq --strip-trailing-cr .agents/skills/<skill> <clon de monorepo-skill>/skills/<skill>`
+  no imprime nada.
+
 ---
 
 ## 7. Checklist de Implementación Mandatoria (6 Fases)
