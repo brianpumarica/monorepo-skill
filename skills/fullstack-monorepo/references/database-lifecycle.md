@@ -254,6 +254,63 @@ En una máquina de desarrollo Windows, el mismo archivo con CRLF da un hash **di
 - **Restaurar siempre primero en una instancia descartable** y comparar conteos tabla por tabla
   antes de dar el respaldo por bueno.
 - **`down -v` no es un rollback**: borra el volumen de datos. El rollback es restaurar un volcado.
+
+### 6.1 Ensayo de restauración en el servidor
+
+Un backup que nunca se restauró no está probado. El ensayo levanta el último volcado de
+`backup.sh` en un Postgres **descartable** en el mismo servidor y compara las filas tabla por
+tabla con la base viva. No toca la base, los volúmenes ni los puertos de producción. Probado en
+producción con un volcado real.
+
+Reglas del contenedor descartable:
+
+- **La misma imagen que la base, por ID** (`docker inspect <db> --format '{{.Image}}'`): con el
+  tag, un `pull` posterior puede haberlo movido a otra versión.
+- **`--network none`**: sin red ni puertos. Por eso alcanza con `POSTGRES_HOST_AUTH_METHOD=trust`
+  y no hace falta ninguna contraseña.
+- **`--tmpfs` en el `PGDATA`**: los datos viven en RAM. Docker no crea ni el volumen anónimo que la
+  imagen declara, y `--rm` se lleva todo al parar.
+- **El mismo `POSTGRES_USER` y `POSTGRES_DB` que la base viva**: el volcado trae `OWNER TO` y
+  `GRANT` a ese rol. Si `docker/init-db.sql` crea otros roles, crearlos antes de restaurar.
+- **Esperar al servidor definitivo**, no al temporal de inicialización (§0): primero el
+  `init process complete` en el log, después `pg_isready`.
+
+```bash
+# 1. Postgres descartable con la imagen exacta de la base
+IMG=$(docker inspect <db> --format '{{.Image}}')
+docker run -d --rm --name restaurar-prueba --network none \
+  --tmpfs /var/lib/postgresql/data \
+  -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_USER=<usuario> -e POSTGRES_DB=<base> "$IMG"
+for i in $(seq 60); do
+  docker logs restaurar-prueba 2>&1 | grep -q 'init process complete' \
+    && docker exec restaurar-prueba pg_isready -q && break
+  sleep 1
+done
+
+# 2. Restaurar el último volcado. ON_ERROR_STOP: cualquier error corta y el ensayo falla
+F=$(sudo sh -c 'ls -1 /home/<runner>/backups/<repo>/db_<repo>_*.sql.gz | tail -1')
+sudo gunzip -c "$F" | docker exec -i restaurar-prueba \
+  psql -U <usuario> -d <base> -v ON_ERROR_STOP=1 -q -o /dev/null && echo "RESTAURADO OK"
+
+# 3. Filas exactas por tabla (count(*), no la estimación de pg_stat), en las dos bases
+cat > /tmp/contar.sql <<'EOF'
+SELECT table_schema||'.'||table_name, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name), false, true, '')))[1]::text FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema NOT IN ('pg_catalog','information_schema') ORDER BY 1;
+EOF
+docker exec -i <db> psql -U <usuario> -d <base> -At -F ' ' < /tmp/contar.sql > /tmp/filas-viva.txt
+docker exec -i restaurar-prueba psql -U <usuario> -d <base> -At -F ' ' < /tmp/contar.sql > /tmp/filas-restaurada.txt
+diff /tmp/filas-viva.txt /tmp/filas-restaurada.txt && echo "IGUALES: $(wc -l < /tmp/filas-viva.txt) tablas"
+
+# 4. Limpiar: el contenedor se borra solo al parar (--rm) y no deja volúmenes
+docker stop restaurar-prueba; rm -f /tmp/contar.sql /tmp/filas-*.txt
+docker ps -a -q --filter name=restaurar-prueba | wc -l   # 0
+```
+
+- **Una diferencia no es siempre un backup malo**: la base viva sigue recibiendo escrituras después
+  del volcado. Si difiere una tabla que la app escribe, contar las filas creadas después de la hora
+  del archivo antes de dar el backup por roto.
+- **Carpetas subidas** (`files_<repo>_*.tar.gz`): se prueban aparte, extrayendo en una carpeta
+  temporal y comparando cantidad de archivos con la carpeta real.
+- Repetirlo cada tanto (por ejemplo, una vez por mes y después de cambiar `backup.sh`).
 ---
 
 ## 7. Traer un Volcado desde un Servidor sin SSH ni Transferencia de Archivos

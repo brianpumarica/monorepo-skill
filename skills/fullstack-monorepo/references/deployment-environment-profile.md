@@ -52,6 +52,41 @@ Antes de asignar los puertos de un proyecto nuevo:
 docker ps --format 'table {{.Names}}\t{{.Ports}}'
 ```
 
+### 2.1 Poda periódica del host (crontab de root)
+
+El deploy de cada proyecto poda solo sus imágenes (`docker-compose-recipes.md` §4.8). Un
+`docker system prune -af --volumes` semanal en el crontab de root, que es la receta común, rompe
+esa convivencia aunque corra a una hora tranquila. Esto borra cada vez:
+
+- **Todo contenedor parado** en ese momento (una caída, un deploy a medias, un `docker stop` a
+  mano) y, por el `-a`, **su imagen**. Una imagen construida en el servidor no se recupera con un
+  `pull`: vuelve recién con otro deploy. Si la imagen es de terceros con `:latest`, el próximo `up`
+  baja la versión nueva sin que nadie la haya probado.
+- **Todas las imágenes sin contenedor**: las versiones anteriores de cada proyecto, que la poda del
+  deploy guarda 30 días.
+- **Toda la caché de build**: el próximo build de cada proyecto arranca de cero.
+- **Con `--volumes`**: desde Docker 23 solo los volúmenes **anónimos** sin usar (los que tienen
+  nombre quedan). Pero un volumen anónimo de un contenedor parado queda sin usar y se va con él.
+- Con `> /dev/null 2>&1` no queda registro de qué se borró.
+
+Reemplazo seguro, una línea en el crontab de root:
+
+```cron
+0 4 * * 0 /usr/bin/docker image prune -f --filter until=168h >> /var/log/docker-poda.log 2>&1; /usr/bin/docker builder prune -af --filter until=720h >> /var/log/docker-poda.log 2>&1
+```
+
+- `image prune` **sin `-a`**: solo imágenes colgadas (`<none>`) de más de 7 días. Nunca una con
+  tag, así que un tag puesto a mano (por ejemplo, la versión anterior de un servicio de terceros
+  antes de actualizarlo) queda a salvo.
+- `builder prune -a --filter until=720h`: la caché de build sin usar hace más de 30 días. No toca
+  contenedores ni imágenes.
+- Contenedores parados, redes y volúmenes huérfanos no se podan solos: se revisan a mano, uno por
+  uno. Para ver qué hay: `docker volume ls --filter dangling=true` y
+  `docker ps -a --filter status=exited`.
+- Antes de cambiarlo, guardar el crontab: `sudo crontab -l -u root > ~/crontab-root.bak-<fecha>`.
+  Después del primer domingo, revisar `/var/log/docker-poda.log` (cada comando termina con
+  `Total reclaimed space`).
+
 ---
 
 ## 3. Dónde corre cada modo

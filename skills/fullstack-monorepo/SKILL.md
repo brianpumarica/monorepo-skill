@@ -126,7 +126,7 @@ Lo único que el estándar fija sin importar el operador:
 | **Un `.env` por repositorio** en el almacén del servidor | Un archivo único se lo queda el primer proyecto y rompe a todos los demás (ci-cd §5.2) |
 | **El repositorio tiene que estar bajo la organización dueña del runner** | Si el runner es de organización y el repo es personal, el job queda `Queued` para siempre y sin mensaje de error (ci-cd §5.1) |
 | **`gh` es el canal de verificación preferido** | Antes que la web y antes que la terminal del servidor |
-| **En host compartido, ningún comando `prune` ni `down` global** | Se lleva puestos los contenedores de los vecinos (perfil §2) |
+| **En host compartido, ningún comando `prune` ni `down` global** | Se lleva puestos los contenedores de los vecinos (perfil §2). La poda semanal del host también va acotada: sin `-a` en imágenes, sin `--volumes` (perfil §2.1) |
 
 ---
 
@@ -340,12 +340,12 @@ Para evitar fallos de detección de archivos en montajes de volumen host (Window
 Para plantillas de código listas para usar:
 - [Dockerfile Recipes](./references/dockerfile-recipes.md) — **§0 elige la receta por lockfile y layout** (npm y pnpm), §7 trae las trampas de build verificadas
 - [Docker Compose Recipes](./references/docker-compose-recipes.md) — **§0 es el contrato de nombres** entre compose, `.env` y workflow; §4 el endurecimiento obligatorio de producción
-- [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
+- [Database Lifecycle & Entrypoint](./references/database-lifecycle.md) — **reglas innegociables del arranque** (§0), el `entrypoint.sh` de referencia (§1) el **ensayo de restauración** de un backup en un Postgres descartable (§6.1) y cómo **traer un volcado desde un servidor sin SSH** (§7)
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
 - [`tunel-agregar.sh`](./references/tunel-agregar.sh) — registra la ruta del Cloudflare Tunnel de un proyecto desde el deploy, con un script de `root` instalado una vez en el servidor (CI/CD §2.6)
 - [`alta-proyecto.sh`](./references/alta-proyecto.sh) — el alta de un proyecto nuevo **desde la consola** (organización del runner, proyecto de Vercel, Root Directory y secrets), con modo `--simular`; el recorrido completo está en CI/CD §3.1
 - [Puertos: tu máquina y el servidor](./references/puertos.md) — **un solo mapa** de `puerto.sh` (desarrollo) y `chequear-host.sh` (servidor): qué hace cada uno, cuándo, y el orden del alta de un proyecto
-- [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador y reglas de host compartido
+- [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador, reglas de host compartido y la **poda semanal segura del host** (§2.1)
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
 - [AGENTS.md Standard Template](./references/agents-md-template.md)
 
