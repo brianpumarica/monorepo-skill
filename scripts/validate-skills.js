@@ -93,6 +93,33 @@ skillFolders.forEach((skillName) => {
     }
   }
 
+  // Version: `metadata.version` en el encabezado (semver). Los repos que usan la skill la anotan en
+  // su AGENTS.md y `analiza` la compara con la publicada, asi que tiene que existir y coincidir con
+  // el primer titulo del CHANGELOG.md de la skill, que es lo que dice que cambio entre una y otra.
+  // Solo se exige en la skill madre; en las demas es opcional pero, si esta, tiene que ser semver.
+  const versionMatch = yamlBlock.match(/^[ \t]+version:[ \t]*"?([^"\r\n]+?)"?[ \t]*$/m);
+  const version = versionMatch ? versionMatch[1] : null;
+  if (version && !/^\d+\.\d+\.\d+$/.test(version)) {
+    console.error(`   ❌ ${skillName}: la version '${version}' no es semver (X.Y.Z).`);
+    totalErrors++;
+  }
+  if (skillName === 'fullstack-monorepo') {
+    const changelog = path.join(skillPath, 'CHANGELOG.md');
+    if (!version) {
+      console.error(`   ❌ ${skillName}/SKILL.md: falta metadata.version en el encabezado.`);
+      totalErrors++;
+    } else if (!fs.existsSync(changelog)) {
+      console.error(`   ❌ Falta ${skillName}/CHANGELOG.md.`);
+      totalErrors++;
+    } else {
+      const top = fs.readFileSync(changelog, 'utf8').match(/^## \[?v?(\d+\.\d+\.\d+)/m);
+      if (!top || top[1] !== version) {
+        console.error(`   ❌ ${skillName}: el primer titulo del CHANGELOG.md (${top ? top[1] : 'ninguno'}) no coincide con metadata.version (${version}).`);
+        totalErrors++;
+      }
+    }
+  }
+
   console.log(`   ✅ Skill [${skillName}] passed validation.`);
 });
 

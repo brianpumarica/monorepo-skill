@@ -1,6 +1,8 @@
 ---
 name: fullstack-monorepo
-description: Estándar y runbook para monorepos full-stack en Docker — auditar, scaffoldear y refactorizar el repo (compose dev/prod, Dockerfiles multi-stage non-root, entrypoint con espera de base, hot-reload en contenedores, SPA routing) y desplegarlo con GitHub Actions a Vercel más un runner self-hosted. Usar cuando el pedido toque docker-compose, Dockerfile, entrypoint, deploy.yml, o el estado real de lo que está corriendo en el servidor. Tres modos - analiza (auditoría y plan), ejecuta (implementación y eliminación de legacy), inspecciona (diagnóstico de sólo lectura del despliegue).
+description: Estándar y runbook para monorepos full-stack en Docker — auditar, scaffoldear y refactorizar el repo (compose dev/prod, Dockerfiles multi-stage non-root, entrypoint con espera de base, hot-reload en contenedores, SPA routing) y desplegarlo con GitHub Actions a Vercel más un runner self-hosted (o, en un repo solo de frontend, a Vercel con la CLI). Usar cuando el pedido toque docker-compose, Dockerfile, entrypoint, deploy.yml, deploy-vercel.yml, o el estado real de lo que está corriendo en el servidor. Tres modos - analiza (auditoría y plan), ejecuta (implementación y eliminación de legacy), inspecciona (diagnóstico de sólo lectura del despliegue).
+metadata:
+  version: "1.0.0"
 ---
 
 # Fullstack Monorepo Standard & Scaffold Runbook
@@ -21,7 +23,7 @@ host. Se piden como argumento al invocarla (`/fullstack-monorepo analiza`) o en 
 
 | Modo | Fase | Comportamiento Obligatorio del Agente |
 | :--- | :--- | :--- |
-| **`analiza`** | **Fase 1: Auditoría & Diagnóstico** | 1. Ejecuta el **Motor de Detección de Stack**.<br>2. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar.<br>3. Ejecuta los **chequeos de coherencia** (ver abajo).<br>4. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>5. Presenta el plan de acción listo para aprobación. |
+| **`analiza`** | **Fase 1: Auditoría & Diagnóstico** | 1. Anota la **versión de la copia** de esta skill (`metadata.version` del encabezado) y la compara con la publicada (§6): si es menor, o no tiene número, lo avisa y propone actualizarla **antes** de auditar contra reglas viejas.<br>2. Elige el **perfil de despliegue** (A dual, B solo frontend, C Next full-stack, D backend en Next: [`perfiles-de-despliegue.md`](./references/perfiles-de-despliegue.md)) y ejecuta el **Motor de Detección de Stack**.<br>3. Corre el chequeo estático [`auditar-repos.sh`](./references/auditar-repos.sh) sobre el repo (≈50 reglas de la checklist, una línea por regla) y lo usa como base de la matriz.<br>4. Genera la **Matriz de Conformidad (Gap Analysis)** clasificando ítems en: ✅ Cumple, ⚠️ Desviación, ❌ Faltante Crítico, 🗑️ Legacy a Eliminar, y **n/a** lo que el perfil no exige.<br>5. Ejecuta los **chequeos de coherencia** (ver abajo).<br>6. Aplica la **Regla de Cero Preguntas Obvias** (solo consulta dilemas no estándar).<br>7. Presenta el plan de acción listo para aprobación. |
 | **`ejecuta`** | **Fase 2: Implementación & Erradicación** | 1. Aplica obligatoriamente el **Checklist de 6 Fases** para las tecnologías detectadas sin omitir entregables.<br>2. **Elimina proactivamente archivos legacy/anti-patrones**.<br>3. Ejecuta validaciones automáticas (`docker compose config`, lint, build).<br>4. Entrega el reporte de cambios completo. |
 | **`inspecciona`** | **Fase 0: Inspección del Entorno Desplegado** *(solo lectura)* | 1. **Primero, el canal: ¿el pipeline llegó a correr alguna vez?** Dueño del repo vs. organización dueña del runner, etiquetas, historial de corridas y secrets cargados (ver [CI/CD §5.1](./references/ci-cd-deployment-pipeline.md)). Si nunca hubo un deploy exitoso, **no hay nada desplegado que inspeccionar** y el resto del catálogo sobra.<br>2. Recién entonces emite el **Catálogo de Diagnóstico** —comandos exclusivamente de lectura— para ejecutar en el servidor ([CI/CD §6](./references/ci-cd-deployment-pipeline.md)).<br>3. Interpreta la salida y reporta el **estado real**: inventario completo de contenedores del host, salud, recursos, versión desplegada y desvíos del entorno (credenciales de ejemplo, crons con rutas muertas, backups atrasados, `.env` sueltos: [CI/CD §6.5 a 6.7](./references/ci-cd-deployment-pipeline.md)).<br>4. **No modifica absolutamente nada.** Lo que haya para corregir se lista y se espera aprobación explícita. |
 | **(sin modo)** | **Modo Directo (All-in-One)** | Ejecuta el análisis y, si no existen dudas humanas ambiguas, **procede directamente a la ejecución exhaustiva** sin requerir confirmación intermedia. |
@@ -74,7 +76,10 @@ La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análi
 
 | Tecnología Detectada | Indicador en el Proyecto | Directivas Obligatorias Activadas |
 | :--- | :--- | :--- |
-| **Docker / Compose** | Hay Dockerfiles o `docker-compose*.yml` | • `.gitattributes` con `eol=lf` para scripts Linux en Windows.<br>• `.dockerignore` raíz centralizado.<br>• `docker-compose.yml` (dev-first sin flags) y `docker-compose.prod.yml`. |
+| **Cualquier repo** | — | • `.gitattributes` con `eol=lf` (scripts y workflows rompen con CRLF en Windows) y `.gitignore`: son de la Fase 1 y valen aunque no haya Docker.<br>• `AGENTS.md` con la versión de la skill. |
+| **Docker / Compose** | Hay Dockerfiles o `docker-compose*.yml` | • `.dockerignore` raíz centralizado.<br>• `docker-compose.yml` (dev-first sin flags) y `docker-compose.prod.yml`. |
+| **Solo frontend (sin Docker)** | Ni Dockerfile ni compose; `vercel.json`, `.vercel/` o `netlify.toml` | • Perfil **B**: todo lo de Docker, el `.env` del servidor, los backups y el Tunnel son **n/a**.<br>• `deploy-vercel.yml` (valida en el PR, publica desde `main`) en lugar del `deploy.yml` dual: [`perfiles-de-despliegue.md`](./references/perfiles-de-despliegue.md) §2. |
+| **Next como servidor en la Pi** | `next.config` con `output: 'standalone'` y un `Dockerfile`, sin frontend aparte, o con route handlers que sirven a otro frontend | • Perfiles **C** (app completa, host de usuario) y **D** (API para otro frontend): [`perfiles-de-despliegue.md`](./references/perfiles-de-despliegue.md) §3 y §4. |
 | **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• **`postgresql-client` en la etapa `base`** — sin él no hay `pg_isready` y el arranque muere (receta §8.3).<br>• BuildKit cache mount: `/root/.npm` con npm, `/pnpm/store` con pnpm.<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
 | **Gestor de paquetes** | `package-lock.json` vs `pnpm-lock.yaml` | • **El lockfile manda** y define los comandos de instalación y poda. No migrar de gestor sin pedido explícito ([`workspace-tooling.md`](./references/workspace-tooling.md)). |
 | **Layout del repo** | Apps en `apps/*` vs. en la raíz | • **Eje independiente del gestor**: define el `context` del build y las rutas de los `COPY`. Cualquier combinación es válida (npm con `apps/`, pnpm con apps en la raíz).<br>• Las recetas numeradas son combinaciones frecuentes, no un menú cerrado: si el repo cae entre dos, se toman los comandos de una y las rutas de la otra (recetas §0).<br>• El `.dockerignore` va junto a **cada** contexto de build. |
@@ -137,7 +142,7 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Anti-Patrón Heredado / Detectado | Acción Obligatoria de la Skill |
 | :--- | :--- |
 | **`docker-compose.dev.yml`** separado | **ELIMINAR / UNIFICAR DIRECTAMENTE en `docker-compose.yml`** para que `docker compose up -d` (cero flags) levante el entorno dev completo. |
-| Scripts de CI/CD fragmentados (ej. `deploy-backend.yml` SSH aislado) | **REEMPLAZAR por `.github/workflows/deploy.yml`** con el pipeline dual completo (Vercel CLI + Pi Runner). |
+| Scripts de CI/CD fragmentados (ej. `deploy-backend.yml` SSH aislado) | **REEMPLAZAR por `.github/workflows/deploy.yml`** con el pipeline dual completo (Vercel CLI + Pi Runner). **Excepción:** un repo **solo de frontend** que ya tiene `deploy-vercel.yml` (perfil B) cumple: exigirle además el `deploy.yml` dual es un falso faltante. |
 | Dockerfile corriendo como `root` en producción | **MIGRAR OBLIGATORIAMENTE a `USER node` o `USER appuser`**. |
 | Backend iniciando sin verificar disponibilidad de DB | **CREAR OBLIGATORIAMENTE `entrypoint.sh`** con bucle `pg_isready` y `exec "$@"`. |
 | SPA sin configuración de servidor web | **CREAR OBLIGATORIAMENTE `nginx.conf` y `vercel.json`** para evitar errores 404 al recargar rutas. |
@@ -168,6 +173,13 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 | Variables con nombre propio en vez del contrato (`HOST_PORT_BACKEND`, `API_PORT`… en lugar de `BACKEND_HOST_PORT`) | **RENOMBRAR AL CONTRATO** (`docker-compose-recipes.md` §0). Los nombres son fijos en todos los repositorios; sólo los valores cambian. Un sinónimo no rompe de forma visible: cae al default y el smoke test prueba un puerto que nadie usa, con el job en verde. |
 | `healthcheck` apuntando a `localhost` **dentro** del contenedor | **USAR `127.0.0.1`.** `localhost` resuelve a `::1` y la app escucha en IPv4: el contenedor queda `unhealthy` para siempre con la app perfectamente sana, y el deploy falla en cada corrida (`docker-compose-recipes.md` §4.7). |
 | Subdominio anidado con punto (ej. `api.<proyecto>.<dominio>`) | **USAR SIEMPRE GUION (`api-<proyecto>.<dominio>`)**: Cloudflare Universal SSL solo cubre un nivel (`*.<dominio>`); dos puntos causan fallo de handshake TLS (`SEC_E_ILLEGAL_MESSAGE`). |
+| **`typescript: { ignoreBuildErrors: true }`** (o `eslint: { ignoreDuringBuilds: true }`) en `next.config` | **QUITARLO y arreglar lo que aparezca.** Es el valor por defecto de las apps generadas con v0: el build pasa en verde con errores de tipos que llegan a producción, y ningún job de validación (`validate.yml`) detecta nada. Los errores que salgan se corrigen en un PR aparte; no se vuelve a esconderlos. |
+| **Restos de v0** (proyecto generado con v0) | **LISTAR y limpiar lo que no se usa**: `generator: 'v0.app'` en la metadata, nombre del paquete `my-v0-project`, imágenes `placeholder*` sin referencias, `images: { unoptimized: true }` heredado, la rama `v0/*` o `v0-*`, la integración de Git de Vercel todavía conectada, y las dependencias de `components/ui` que nada importa. No se borra a ciegas: se confirma con una búsqueda de referencias. |
+| **Integración de Git de Vercel conectada en un repo que despliega con la CLI** | **DESCONECTARLA** (`alta-proyecto.sh --paso 2`, o `DELETE /v9/projects/<id>/link`). Compila cada push en paralelo al workflow: checks rojos en cada PR, y en Hobby bloquea los commits con `Co-Authored-By` aunque el repo sea personal (CI/CD §4, pitfall 17). |
+| `concurrency` a nivel **workflow** en un workflow que también corre en PR | **MOVERLA al job que despliega.** Un grupo compartido hace que un PR cancele el deploy que estaba en cola (CI/CD §2). |
+| `actions/checkout@v4` / `actions/setup-node@v4` en las plantillas | **SUBIR a `@v5`** (Node 24): las `@v4` dan el aviso de deprecación de Node 20 en cada corrida. En un runner self-hosted, antes comprobar que el agente sea ≥ 2.327.1 (CI/CD §2). |
+| Paso `tunel-agregar` del deploy **sin la condición `TUNEL_HOST`** | **CONDICIONARLO** como la plantilla (CI/CD §2): sin `TUNEL_HOST`, un proyecto con otra ruta crearía una nueva y reiniciaría `cloudflared` para todo el host. |
+| `docker-compose.yml` de desarrollo con el **mismo nombre de contenedor o de volumen que prod** (`<prefijo>-database`, `<prefijo>_pgdata`) | **SEPARAR con `-dev`** (`docker-compose-recipes.md` §0.3, que también dice cómo conservar el volumen viejo). Si no, levantar dev donde corre prod le pisa la base. |
 | Clonar repositorio manualmente en `~/Documents` del servidor | **ELIMINAR ESTA PRÁCTICA**: el runner ya clona en `actions-runner/_work/<repo>/<repo>`. Clonar a mano duplica espacio en la tarjeta SD y desincroniza código. |
 
 ---
@@ -178,11 +190,13 @@ Al ejecutar la refactorización, el agente DEBE eliminar activamente los siguien
 <project-root>/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml           # Pipeline Dual: Vercel CLI (Frontend) + Pi Runner (Backend)
+│       ├── deploy.yml           # Pipeline Dual: Vercel CLI (Frontend) + Pi Runner (Backend)
+│       └── validate.yml         # Lint / types / tests: en cada PR y como primer job del deploy (CI/CD §2.7)
+│                                # (repo solo de frontend: un único deploy-vercel.yml, perfiles §2)
 ├── .agents/
-│   └── skills/                  # Directorio REAL de las skills locales
+│   └── skills/                  # Directorio REAL de las skills locales (esto sí se versiona)
 ├── .claude/
-│   └── skills/                  # Junctions hacia .agents/skills (ver regla abajo)
+│   └── skills/                  # Enlaces hacia .agents/skills: en disco un junction/symlink, en git otra cosa (regla abajo)
 ├── apps/ (o backend / frontend)
 │   ├── api/                     # Backend (NestJS / Express / FastAPI)
 │   │   ├── Dockerfile           # Multi-stage, Node 22 / Python 3.12, non-root
@@ -238,12 +252,31 @@ pero es invisible para `context: ./backend`.
 ### Regla de las dos carpetas de skills
 
 `.claude/skills/` y `.agents/skills/` coexisten porque distintos agentes leen distintas rutas.
-**No son dos copias:** `.claude/skills/<skill>` es un *junction* de Windows que apunta a
-`.agents/skills/<skill>`. Hay un solo archivo real detrás de las dos rutas.
+**No son dos copias a mantener:** el contenido real vive en `.agents/skills/<skill>` y
+`.claude/skills/<skill>` es un *enlace* hacia él. Pero **lo que hay en tu disco y lo que guarda git
+no es lo mismo**, y ahí se rompen los repos:
+
+| Ruta | En tu disco | Lo que git versiona |
+| :--- | :--- | :--- |
+| `.agents/skills/<skill>` | La carpeta real | Sus archivos. **Siempre se commitea** |
+| `.claude/skills/<skill>` | Windows: *junction*. Linux/macOS: enlace simbólico relativo | Un **junction no es un enlace para git**: guarda los archivos que ve a través de él, o sea una segunda copia que puede divergir. Un **enlace simbólico relativo** sí queda como enlace (modo `120000`) |
+
+Se elige **una** de estas dos políticas por repo (no mezclarlas):
+
+- **Enlace simbólico relativo versionado** (`ln -s ../../.agents/skills/<skill> .claude/skills/<skill>`):
+  git guarda el enlace, no una copia. Lo ven bien Linux, macOS y CI. En **Windows** sin
+  `core.symlinks=true` (Modo de desarrollador) se baja como un archivo de texto con la ruta y el agente
+  no ve la skill: arreglo local con un junction (`New-Item -ItemType Junction`) más
+  `git update-index --skip-worktree .claude/skills/<skill>`, para que git no lo vea como un cambio.
+- **`.claude/skills/` en el `.gitignore`**: solo `.agents/skills` viaja con el repo y cada máquina arma
+  su enlace. Menos ruido en el repo; es lo que conviene si alguien del equipo trabaja en Windows sin
+  symlinks.
+
+Reglas que valen en las dos:
 
 1. **`.agents/skills/<skill>` es el directorio real.** Editar por cualquiera de las dos rutas es
-   equivalente: no hay nada que sincronizar y no pueden divergir.
-2. **Toda skill nueva se crea en `.agents/skills/` y se enlaza**, nunca se duplica a mano:
+   equivalente: no hay nada que sincronizar.
+2. **Toda skill nueva se crea en `.agents/skills/` y se enlaza**, nunca se duplica a mano. En Windows:
    ```powershell
    New-Item -ItemType Junction -Path .claude\skills\<skill> -Target .agents\skills\<skill>
    ```
@@ -278,6 +311,11 @@ el estándar de cuando se instaló y deja pasar todo lo que se agregó después.
   en el título y el `push` a `main` no dispara `deploy.yml`.
 - **Verificar:** `diff -rq --strip-trailing-cr .agents/skills/<skill> <clon de monorepo-skill>/skills/<skill>`
   no imprime nada.
+- **Qué versión tiene cada repo:** `grep -m1 'version:' .agents/skills/fullstack-monorepo/SKILL.md` (sin
+  resultado = copia anterior a la numeración). La publicada:
+  `gh api repos/brianpumarica/monorepo-skill/contents/skills/fullstack-monorepo/SKILL.md --jq .content | base64 -d | grep -m1 'version:'`.
+  Qué cambió entre una y otra: [`CHANGELOG.md`](./CHANGELOG.md). Al actualizar, la versión nueva se anota en
+  la línea de la skill de `AGENTS.md` del repo (plantilla en [`agents-md-template.md`](./references/agents-md-template.md)).
 
 ---
 
@@ -312,7 +350,8 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Configurar `frontend/Dockerfile` multi-stage con `nginx:alpine` para producción.
 
 ### Fase 5: CI/CD Pipeline Dual
-- [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 1: Raspberry Pi / Servidor Docker con `--force-recreate`; Job 2: Vercel CLI Frontend con `needs: deploy-backend`).
+- [ ] Crear/Unificar `.github/workflows/deploy.yml` (Job 0: `validate`; Job 1: Raspberry Pi / Servidor Docker con `--force-recreate`; Job 2: Vercel CLI Frontend con `needs: deploy-backend`). **Perfil B (solo frontend):** en su lugar, `deploy-vercel.yml` ([`perfiles-de-despliegue.md`](./references/perfiles-de-despliegue.md) §2); **perfil C:** el mismo `deploy.yml` sin el job de Vercel.
+- [ ] Crear `.github/workflows/validate.yml` (CI/CD §2.7): corre en cada PR y como primer job del deploy. Si el repo no tiene lint, tipos ni tests, se omite y se anota; no se inventa.
 - [ ] Eliminar workflows de despliegue fragmentados u obsoletos.
 - [ ] Ramas **`main` (producción) + `develop`**, cambios por PR; el secret de la URL pública del backend se llama **`API_URL`** y el workflow lo traduce al nombre del framework (CI/CD §7.1 y §3). Para un proyecto que ya corre en producción, seguir el runbook de CI/CD §3.2.
 - [ ] Dar de alta el proyecto con [`alta-proyecto.sh`](./references/alta-proyecto.sh) (`--simular` primero): repo **bajo la organización dueña del runner**, proyecto de Vercel con su Root Directory y secrets de GitHub. Recorrido completo en CI/CD §3.1. El `VERCEL_TOKEN` va en tu archivo personal `~/.config/alta-proyecto.env`, **no** como secret de organización (pitfall 14).
@@ -321,7 +360,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Copiar [`references/rotar-secretos.sh`](./references/rotar-secretos.sh) a `scripts/rotar-secretos.sh` (rotación de `JWT_SECRET` y de la clave de la base, ci-cd §5.2).
 - [ ] Copiar [`references/backup.sh`](./references/backup.sh) a `scripts/backup.sh` (ajustando solo las 4 variables de arriba) y [`references/crontab`](./references/crontab) a `scripts/crontab` (con el nombre del repo y el siguiente minuto libre a partir de las 03:00). El deploy instala el cron solo (§2.3 de `ci-cd-deployment-pipeline.md`); no se usa `crontab -e`.
 - [ ] Backend con `healthcheck` propio en `docker-compose.prod.yml` (§4.6 de `docker-compose-recipes.md`).
-- [ ] Instalar **una vez por servidor** [`tunel-agregar.sh`](./references/tunel-agregar.sh) (instrucciones y por qué no es un script del repo en CI/CD §2.6); el deploy registra solo la ruta del Tunnel (`api-<repo>`, o la que diga `TUNEL_HOST` en el `.env` del servidor). El paso es para proyectos nuevos o con ruta `api-<repo>`: si ya tenían otra, poner `TUNEL_HOST` o no incluirlo.
+- [ ] Instalar **una vez por servidor** [`tunel-agregar.sh`](./references/tunel-agregar.sh) (instrucciones y por qué no es un script del repo en CI/CD §2.6); el deploy registra la ruta del Tunnel **solo si el `.env` del servidor define `TUNEL_HOST`** (el host público completo: `api-<repo>.<dominio>` para una API, `<repo>.<dominio>` para una app de usuario, o la ruta que el proyecto ya tenía). Sin esa variable el paso no toca nada.
 - [ ] Copiar [`references/chequear-host.sh`](./references/chequear-host.sh) a `scripts/chequear-host.sh`, agregar su paso al `deploy.yml` (justo después del `.env`) y elegir el horario del backup con `bash scripts/chequear-host.sh libre`: el servidor es el registro de puertos y horarios, no un archivo (ci-cd §2.4).
 - [ ] Copiar [`references/verificar-backup.sh`](./references/verificar-backup.sh) a `scripts/` e instalar **una vez por servidor** [`avisar.sh`](./references/avisar.sh): así un backup fallido o atrasado avisa en lugar de callar (ci-cd §2.3).
 - [ ] Secrets de Vercel/Pi verificados contra el proyecto/servidor real, no copiados a ciegas de una nota guardada.
@@ -368,6 +407,8 @@ Para plantillas de código listas para usar:
 - [CI/CD Deployment Pipeline (GitHub Actions + Vercel CLI + Pi Runner)](./references/ci-cd-deployment-pipeline.md) — incluye el **Catálogo de Diagnóstico** del modo `inspecciona` (§6), la operación con `gh` (§7), la sonda de versión (§8) y el **contrato del endpoint de salud** (§9)
 - [`tunel-agregar.sh`](./references/tunel-agregar.sh) — registra la ruta del Cloudflare Tunnel de un proyecto desde el deploy, con un script de `root` instalado una vez en el servidor (CI/CD §2.6)
 - [`alta-proyecto.sh`](./references/alta-proyecto.sh) — el alta de un proyecto nuevo **desde la consola** (organización del runner, proyecto de Vercel, Root Directory y secrets), con modo `--simular`; el recorrido completo está en CI/CD §3.1
+- [Perfiles de despliegue](./references/perfiles-de-despliegue.md) — **qué cambia según el repo**: dual, solo frontend en Vercel (`deploy-vercel.yml`), app Next full-stack en la Pi y backend hecho en Next
+- [`auditar-repos.sh`](./references/auditar-repos.sh) — el chequeo estático de la checklist que corre `analiza`; se puede correr suelto en cualquier repo
 - [Puertos: tu máquina y el servidor](./references/puertos.md) — **un solo mapa** de `puerto.sh` (desarrollo) y `chequear-host.sh` (servidor): qué hace cada uno, cuándo, y el orden del alta de un proyecto
 - [Deployment Environment Profile](./references/deployment-environment-profile.md) — plantilla del perfil del operador, reglas de host compartido y la **poda semanal segura del host** (§2.1)
 - [Workspace Tooling (pnpm + Turbo)](./references/workspace-tooling.md) — **opcional**: sólo si el proyecto ya usa esas herramientas
