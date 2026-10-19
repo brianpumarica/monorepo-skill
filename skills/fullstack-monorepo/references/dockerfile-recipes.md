@@ -34,6 +34,7 @@ Migrar de gestor sin que nadie lo haya pedido es ruido, no cumplimiento
 | :--- | :--- | :--- | :--- |
 | §1 | pnpm + workspaces | `apps/` | Backend Node |
 | §2 | npm | apps en la raíz | Backend Node |
+| §2b | npm + workspaces | `apps/` | Backend Node |
 | §3 | `requirements.txt` | cualquiera | Backend Python |
 | §4 | pnpm + workspaces | `apps/` | Frontend SPA |
 | §5 | npm | apps en la raíz | Frontend SPA |
@@ -178,6 +179,82 @@ EXPOSE 3004
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "dist/main.js"]
 ```
+
+---
+
+## 2b. Backend: Node.js — npm + workspaces, apps en `apps/`
+
+Un solo `package-lock.json` en la raíz, `workspaces` en el `package.json` raíz y las apps en
+`apps/api`, `apps/web`, `packages/*`. El contexto de build es la **raíz** (`context: .`,
+`dockerfile: ./apps/api/Dockerfile`) y hay un `.dockerignore` en la raíz.
+
+Dos cosas que no son obvias (la primera, comprobada con npm 10.9; la segunda, vista en un repo real):
+
+- **`npm ci -w apps/api` instala solo las dependencias de ese workspace**: las del `package.json` raíz
+  (TypeScript, `prisma`, herramientas de build) **no** entran sin `--include-workspace-root`. El
+  build falla con «tsc: not found» o genera una imagen sin cliente.
+- **Copiar los `package.json` de todos los workspaces antes del `npm ci`**, no solo el de la app. Hubo un
+  repo donde faltar uno hacía fallar el `npm ci`; en un caso mínimo con npm 10.9 no lo reproduje, pero
+  copiarlos cuesta una línea por workspace y mantiene el lockfile coherente con el árbol.
+
+`apps/api/Dockerfile`:
+
+```dockerfile
+FROM node:22-alpine AS base
+RUN apk add --no-cache postgresql-client
+WORKDIR /app
+
+FROM base AS development
+ENV NODE_ENV=development
+COPY package.json package-lock.json ./
+# Un COPY por workspace (sin comodines: `COPY apps/*/package.json` aplana las carpetas).
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/types/package.json packages/types/
+RUN --mount=type=cache,target=/root/.npm npm ci -w apps/api --include-workspace-root
+COPY . .
+RUN chmod +x apps/api/entrypoint.sh
+ENTRYPOINT ["/app/apps/api/entrypoint.sh"]
+CMD ["npm", "run", "dev", "-w", "apps/api"]
+
+FROM base AS build
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/types/package.json packages/types/
+RUN --mount=type=cache,target=/root/.npm npm ci -w apps/api --include-workspace-root
+COPY . .
+# Los paquetes compartidos se compilan antes que la app que los importa.
+RUN npm run build -w packages/types --if-present && npm run build -w apps/api
+RUN test -f apps/api/dist/main.js || test -f apps/api/dist/index.js     || (echo "ERROR: el build no genero apps/api/dist/main.js ni index.js"; exit 1)
+# Poda primero, genera despues (igual que §2): `npm ci --omit=dev` se lleva el cliente generado.
+RUN --mount=type=cache,target=/root/.npm npm ci -w apps/api --omit=dev
+RUN if [ -f apps/api/prisma/schema.prisma ]; then npx --no-install prisma generate --schema apps/api/prisma/schema.prisma; fi
+
+FROM base AS production
+ENV NODE_ENV=production
+# `npm ci -w` deja en la raiz los enlaces de los workspaces: se copia el arbol, no solo la app.
+COPY --chown=node:node --from=build /app/node_modules ./node_modules
+COPY --chown=node:node --from=build /app/package.json ./package.json
+COPY --chown=node:node --from=build /app/packages ./packages
+COPY --chown=node:node --from=build /app/apps/api/dist ./apps/api/dist
+COPY --chown=node:node --from=build /app/apps/api/package.json ./apps/api/package.json
+COPY --chown=node:node --from=build /app/apps/api/prisma ./apps/api/prisma
+COPY --chown=node:node apps/api/entrypoint.sh ./apps/api/entrypoint.sh
+RUN chmod +x apps/api/entrypoint.sh
+USER node
+EXPOSE 3004
+ENTRYPOINT ["/app/apps/api/entrypoint.sh"]
+CMD ["node", "apps/api/dist/main.js"]
+```
+
+El `entrypoint.sh` ancla sus rutas con `APP_DIR` ([`database-lifecycle.md`](./database-lifecycle.md) §1):
+con `WORKDIR /app` y la app en `/app/apps/api`, un `if` con ruta relativa no coincide y se saltea
+migraciones y seed **sin avisar**. Se verifica la imagen con §8.2 antes de confiar en ella.
+
+*Sin probar en un contenedor real*: la forma sale de las recetas §1 y §2 y de lo comprobado con npm
+arriba; antes de adoptarla en un repo, construir la imagen de producción y correr los tres chequeos
+de §8.2.
 
 ---
 
@@ -362,6 +439,9 @@ RUN test -d apps/web/.next/standalone \
 FROM node:22-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production PORT=8084
+# server.js escucha en $HOSTNAME, y Docker lo fija al id del contenedor: sin esto no atiende en
+# 127.0.0.1 y el healthcheck (§4.7 de las recetas de compose) falla con la app sana.
+ENV HOSTNAME=0.0.0.0
 COPY --chown=node:node --from=build /app/apps/web/.next/standalone ./
 COPY --chown=node:node --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --chown=node:node --from=build /app/apps/web/public ./apps/web/public
