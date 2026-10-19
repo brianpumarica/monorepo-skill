@@ -223,7 +223,8 @@ cat <<EOF
    c. En la Pi, crear el .env (genera los secretos) y poner esos puertos:
         sudo bash /home/github-runner/actions-runner/_work/$NOMBRE/$NOMBRE/scripts/crear-env.sh
    d. Ruta en Cloudflare Tunnel: api-$NOMBRE.$DOMINIO -> http://localhost:<BACKEND_HOST_PORT>
-        (ci-cd §3.1 Fase B paso 4; guion, nunca punto)
+        (ci-cd §3.1 Fase B paso 4; guion, nunca punto). Para que el deploy la registre solo,
+        agregar al .env del servidor:  TUNEL_HOST=api-$NOMBRE.$DOMINIO  (sin esa variable el paso no corre)
    e. Volver a correr el deploy:
         gh workflow run deploy.yml --repo $REPO --ref <rama>  &&  gh run watch --repo $REPO
 EOF
