@@ -2,8 +2,9 @@
 # Crea el .env de produccion de un proyecto en el servidor, UNA vez. Cada repo lo copia como
 # scripts/crear-env.sh. Uso:  sudo bash scripts/crear-env.sh   (desde la carpeta del repo)
 #
-# - Parte de .env.example y completa con valores aleatorios las variables *_SECRET y
-#   *_PASSWORD que estan VACIAS en la plantilla. Las que ya traen valor se copian tal cual;
+# - Parte de .env.example y completa con valores aleatorios las variables *_PASSWORD, *_SECRET y
+#   las *_KEY propias (API_KEY, *_ENCRYPTION_KEY...) que estan VACIAS en la plantilla; las de un
+#   tercero (GOOGLE_CLIENT_SECRET, OPENAI_API_KEY...) no, ver mas abajo. Las que ya traen valor se copian tal cual;
 #   por eso, para una base ya creada, dejar en .env.example el POSTGRES_PASSWORD real no
 #   corresponde: se copia a mano del .env viejo antes de correr esto.
 # - Las *_HOST_PORT que estan VACIAS en la plantilla se completan con puertos libres de este
@@ -11,7 +12,7 @@
 #   a mano. Con valor en la plantilla, se respetan. El archivo queda con el dueño correcto: NO
 #   editarlo despues con `sudo sed -i` (recrea el archivo como root y el runner deja de leerlo);
 #   si hace falta cambiar algo, `sudo nano` y despues `sudo chown github-runner:github-runner`.
-# - Las claves de terceros (API keys) no se inventan: quedan listadas para completar.
+# - Las credenciales de terceros no se inventan: quedan listadas para completar.
 # - Nunca pisa un .env existente.
 set -euo pipefail
 
@@ -28,24 +29,47 @@ dest="$base/$repo/.env"
 [ ! -e "$dest" ] || { echo "❌ Ya existe $dest. No se pisa; editarlo con: sudo nano $dest"; exit 1; }
 
 own=(); [ -n "$owner" ] && own=(-o "$owner" -g "$owner")
-tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
-cp .env.example "$tmp"
+tmp=$(mktemp); ej=$(mktemp); trap 'rm -f "$tmp" "$ej"' EXIT
+# Una plantilla guardada con CRLF (Windows sin .gitattributes) deja un \r al final de cada
+# linea: ningun `VAR=$` coincide y el script no generaba NADA, sin decir por que. Se trabaja
+# sobre una copia sin \r (y el .env sale con LF).
+if [ "$(tr -cd '\r' < .env.example | wc -c)" -gt 0 ]; then
+  echo "ℹ️  .env.example tiene saltos CRLF: se normalizan a LF (agregar .gitattributes con eol=lf al repo)."
+fi
+tr -d '\r' < .env.example > "$ej"
+cp "$ej" "$tmp"
+
+# Que se genera y que se deja para completar a mano:
+#  - *_PASSWORD vacia: siempre (es una credencial propia).
+#  - *_SECRET vacia: propia, salvo la de un tercero (<PROVEEDOR>_*, *_CLIENT_SECRET): ese valor
+#    lo da el proveedor, y uno inventado hace fallar el login sin avisar.
+#  - *_KEY vacia: solo las propias (API_KEY, SECRET_KEY, *_ENCRYPTION_KEY, *_SIGNING_KEY,
+#    *_MASTER_KEY, *_INTERNAL_KEY). Una clave de API de un servicio (<PROVEEDOR>_API_KEY) la da
+#    el servicio. Mas proveedores: CREAR_ENV_TERCEROS='ACME|OTRO' (prefijos, regex).
+TERCEROS='GOOGLE|GITHUB|GITLAB|FACEBOOK|META|INSTAGRAM|TWITTER|X|LINKEDIN|APPLE|MICROSOFT|AZURE|AWS|STRIPE|PAYPAL|MERCADOPAGO|MP|TWILIO|SENDGRID|MAILGUN|RESEND|CLOUDFLARE|VERCEL|NETLIFY|NOTION|SLACK|DISCORD|TELEGRAM|WHATSAPP|EVOLUTION|N8N|OPENAI|ANTHROPIC|GEMINI|SUPABASE|FIREBASE|CLOUDINARY|SENTRY|AUTH0|OKTA|CLERK'
+[ -z "${CREAR_ENV_TERCEROS:-}" ] || TERCEROS="$TERCEROS|$CREAR_ENV_TERCEROS"
+es_tercero() { printf '%s' "$1" | grep -qE "^(${TERCEROS})_|_CLIENT_SECRET\$|^CLIENT_SECRET\$"; }
+es_clave_propia() { printf '%s' "$1" | grep -qE '^(API_KEY|SECRET_KEY|[A-Z0-9_]*(ENCRYPTION|SIGNING|MASTER|INTERNAL)_KEY)$'; }
 
 generados=()
 while IFS= read -r var; do
+  case "$var" in
+    *_KEY) es_clave_propia "$var" && ! es_tercero "$var" || continue ;;
+    *_SECRET) ! es_tercero "$var" || continue ;;
+  esac
   case "$var" in JWT_SECRET) valor=$(openssl rand -hex 32) ;; *) valor=$(openssl rand -hex 16) ;; esac
   sed -i "s|^${var}=\$|${var}=${valor}|" "$tmp"
   generados+=("$var")
-done < <(grep -E '^[A-Z0-9_]*(_SECRET|_PASSWORD)=$' .env.example | cut -d= -f1)
+done < <(grep -E '^[A-Z0-9_]*(_SECRET|_PASSWORD|_KEY)=$' "$ej" | cut -d= -f1)
 
 # Puertos libres para las *_HOST_PORT vacias de la plantilla.
 asignados=()
-if grep -qE '^[A-Z]*_HOST_PORT=$' .env.example && [ -f scripts/chequear-host.sh ]; then
+if grep -qE '^[A-Z]*_HOST_PORT=$' "$ej" && [ -f scripts/chequear-host.sh ]; then
   libres=$(ENV_BASE="$base" bash scripts/chequear-host.sh alta 2>/dev/null \
     | sed -n 's/^ *\([A-Z]*_HOST_PORT\)=\([0-9]*\).*/\1=\2/p')
   for par in $libres; do
     var=${par%%=*}; valor=${par#*=}
-    if grep -qE "^${var}=\$" .env.example; then
+    if grep -qE "^${var}=\$" "$ej"; then
       sed -i "s|^${var}=\$|${var}=${valor}|" "$tmp"
       asignados+=("$var=$valor")
     fi
@@ -61,5 +85,7 @@ echo "✅ Creado $dest (600)."
 for var in "${generados[@]}"; do
   case "$var" in ADMIN_*) echo "   $var = $(grep -m1 "^${var}=" "$dest" | cut -d= -f2-)   <- guardarla ahora, es la de acceso" ;; esac
 done
-pendientes=$(grep -E '^[A-Z0-9_]+=$' "$dest" | cut -d= -f1 | tr '\n' ' ')
+# `|| true`: si no queda nada por completar, grep sale con 1 y con `set -e` el script moria aca,
+# despues de crear el .env, con un codigo de error que el log del deploy mostraba como falla.
+pendientes=$(grep -E '^[A-Z0-9_]+=$' "$dest" | cut -d= -f1 | tr '\n' ' ' || true)
 [ -z "$pendientes" ] || echo "   Completar a mano (sudo nano $dest): $pendientes"
