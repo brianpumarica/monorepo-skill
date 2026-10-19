@@ -197,7 +197,7 @@ if [ "$PERFIL" = B ]; then
     if [ "$nt" -ge "$nr" ]; then ok "5 wf: timeout-minutes en todos los jobs"; else mal "5 wf: timeout-minutes en todos los jobs" "($nt de $nr)"; fi
     chk "5 wf: valida en los PR"             "grep -q 'pull_request' $WFV"
     chk "5 wf: solo publica desde main"      "grep -q \"github.event_name != 'pull_request'\" $WFV"
-    chk "5 wf: job de validacion antes del deploy" "grep -q 'needs: *validate' $WFV"
+    chk "5 wf: job de validacion antes del deploy" "grep -qE '^ +(validate|lint|test|typecheck|ci|check)[a-z-]*:' $WFV && grep -q 'needs:' $WFV"
     chk "5 wf: smoke test despues del deploy" "grep -qiE 'smoke|curl' $WFV"
   else
     mal "5 deploy-vercel.yml" "(repo sin Docker: falta el workflow que publica en Vercel)"
@@ -225,7 +225,8 @@ else
     chk "5 wf: tunel-agregar"                 "grep -q 'tunel-agregar' $WF"
     # El paso del Tunnel solo corre con TUNEL_HOST: si no, un proyecto con otra ruta crea una nueva.
     if grep -q 'tunel-agregar' $WF; then chk "5 wf: tunel-agregar solo con TUNEL_HOST" "grep -B8 'tunel-agregar' $WF | grep -q TUNEL_HOST"; fi
-    chk "5 wf: validacion (validate) antes del deploy" "grep -q 'validate' $WF"
+    # Un job de validacion (validate / lint / test / ci / check) o el workflow reutilizable validate.yml.
+    chk "5 wf: validacion antes del deploy" "grep -qE '^ +(validate|lint|test|typecheck|ci|check)[a-z-]*:|uses: *./.github/workflows/' $WF"
   else
     mal "5 deploy.yml" "(el repo usa Docker y no tiene .github/workflows/deploy.yml)"
   fi
