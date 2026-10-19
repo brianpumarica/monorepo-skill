@@ -7,7 +7,8 @@
 #   alta-proyecto.sh --simular        # imprime cada paso y NO ejecuta nada (empezar siempre por aca)
 #   alta-proyecto.sh                  # ejecuta los pasos 1 a 3, pidiendo confirmacion antes de CADA
 #                                     # accion que sale de tu maquina
-#   alta-proyecto.sh --paso 1 --paso 3   # solo esos pasos (1 = organizacion, 2 = Vercel, 3 = secrets)
+#   alta-proyecto.sh --paso 1 --paso 3   # solo esos pasos (1 = organizacion, 2 = Vercel: enlace, Root Directory y desconexion
+#                                      #   de la integracion de Git si el repo ya desplegaba por ahi, 3 = secrets)
 #   alta-proyecto.sh --verificar      # comprueba la configuracion y el token SIN mostrarlo
 #
 # Configuracion (nunca va en un repo publico). Se escribe UNA vez en un archivo personal:
@@ -142,20 +143,42 @@ if quiere 2; then
     echo "   ✅ Enlazado (projectId y orgId quedaron en .vercel/project.json)."
     grep -qxF '.vercel' .gitignore 2>/dev/null || { echo '.vercel' >> .gitignore; echo "   .vercel agregado a .gitignore."; }
 
+    # `vercel api` usa la sesion de la propia CLI: no hace falta ningun token en el entorno.
+    # MSYS_NO_PATHCONV evita que Git Bash reescriba "/v9/..." como una ruta de archivo.
+    PROJECT_ID=$(node -p 'require("./.vercel/project.json").projectId')
+    ORG_ID=$(node -p 'require("./.vercel/project.json").orgId')
+    q=""; case "$ORG_ID" in team_*) q="?teamId=$ORG_ID" ;; esac
+    # Imprime un campo del JSON que devuelve la API (vacio si no existe o no hay JSON).
+    vercel_api() {
+      MSYS_NO_PATHCONV=1 $VERCEL_CMD api "$@" 2>/dev/null \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=process.argv[1].split(".").reduce((o,k)=>o&&o[k],JSON.parse(s.slice(s.indexOf("{"))));console.log(v===undefined||v===null?"":v)}catch(e){}})' "$FIELD"
+    }
+
     # `link --yes` NO fija el Root Directory. Sin esto, `vercel build` corre en la raiz del
-    # monorepo y no encuentra la app (pitfall 2 de ci-cd §4). `vercel api` usa la sesion de la
-    # propia CLI: no hace falta ningun token en el entorno. MSYS_NO_PATHCONV evita que Git Bash
-    # reescriba "/v9/..." como una ruta de archivo.
+    # monorepo y no encuentra la app (pitfall 2 de ci-cd §4).
     if [ -d "$FRONTEND_DIR" ]; then
-      PROJECT_ID=$(node -p 'require("./.vercel/project.json").projectId')
-      ORG_ID=$(node -p 'require("./.vercel/project.json").orgId')
       if confirmar "fijar Root Directory = $FRONTEND_DIR en el proyecto de Vercel"; then
-        q=""; case "$ORG_ID" in team_*) q="?teamId=$ORG_ID" ;; esac
-        RD=$(MSYS_NO_PATHCONV=1 $VERCEL_CMD api "/v9/projects/$PROJECT_ID$q" -X PATCH -F "rootDirectory=$FRONTEND_DIR" 2>/dev/null \
-             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s.slice(s.indexOf("{"))).rootDirectory)}catch(e){}})')
+        RD=$(FIELD=rootDirectory vercel_api "/v9/projects/$PROJECT_ID$q" -X PATCH -F "rootDirectory=$FRONTEND_DIR")
         if [ "$RD" = "$FRONTEND_DIR" ]; then echo "   ✅ Root Directory = $FRONTEND_DIR"
         else echo "   ⚠️  No se pudo fijar: ponerlo a mano en Vercel > $NOMBRE > Settings > General > Root Directory."; fi
       fi
+    fi
+
+    # Un repo que YA desplegaba por la integracion de Git de Vercel sigue compilando cada push por
+    # esa via, en paralelo al workflow: checks rojos de Vercel en cada PR y, en el plan Hobby,
+    # bloqueos por commits con coautores (ci-cd §3). El deploy va por la CLI desde el workflow, asi
+    # que la integracion se desconecta (`DELETE /v9/projects/<id>/link`). Sin integracion, no hace nada.
+    GIT_LINK=$(FIELD=link.type vercel_api "/v9/projects/$PROJECT_ID$q")
+    if [ -z "$(FIELD=id vercel_api "/v9/projects/$PROJECT_ID$q")" ]; then
+      echo "   ⚠️  No se pudo consultar el proyecto en Vercel: revisar a mano Settings > Git."
+    elif [ -n "$GIT_LINK" ]; then
+      if confirmar "desconectar la integracion de Git de Vercel ($GIT_LINK) del proyecto: el deploy va por la CLI"; then
+        vercel_api "/v9/projects/$PROJECT_ID/link$q" -X DELETE >/dev/null
+        if [ -z "$(FIELD=link.type vercel_api "/v9/projects/$PROJECT_ID$q")" ]; then echo "   ✅ Integracion de Git desconectada."
+        else echo "   ⚠️  No se pudo desconectar: Vercel > $NOMBRE > Settings > Git > Disconnect."; fi
+      fi
+    else
+      echo "   ✅ El proyecto no tiene la integracion de Git de Vercel conectada: nada que desconectar."
     fi
   fi
 fi
