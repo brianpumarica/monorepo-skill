@@ -91,6 +91,24 @@ sed -i 's/localhost:9000/localhost:8101/' "$CFG"; : > "$CF_LOG"; runx -- mi-repo
 igual "mismo puerto: sale con 0" 0 "$ST"
 igual "mismo puerto: no reinicia" 0 "$(reinicios)"
 
+titulo "rutas escritas con 127.0.0.1:N (no solo localhost:N)"
+reset; sed -i 's#http://localhost:9000#http://127.0.0.1:8101#' "$CFG"
+printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=8101\nTUNEL_HOST=api-legacy.ejemplo.test\n' > "$ENVB/mi-repo/.env"
+: > "$CF_LOG"; runx -- mi-repo
+igual "mismo puerto con 127.0.0.1: sale con 0" 0 "$ST"
+contiene "  la reconoce como ya registrada" "$OUT" 'ya esta en el Tunnel: no se toca nada'
+igual "  y no reinicia cloudflared" 0 "$(reinicios)"
+reset; sed -i 's#http://localhost:9000#http://127.0.0.1:9000#' "$CFG"
+printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=8101\nTUNEL_HOST=api-legacy.ejemplo.test\n' > "$ENVB/mi-repo/.env"
+runx -- mi-repo
+igual "otro puerto con 127.0.0.1: sale con 1" 1 "$ST"
+contiene "  informa el puerto que tiene (9000, no vacio)" "$OUT" 'ya existe con otro puerto \(9000\)'
+reset; runx -- mi-repo >/dev/null; sed -i 's#http://localhost:8101#http://127.0.0.1:8101#' "$CFG"
+printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=8105\n' > "$ENVB/mi-repo/.env"
+runx DOCKER_PS=$'app-backend|127.0.0.1:8105->8000/tcp' -- mi-repo
+igual "cambio de puerto en una ruta propia con 127.0.0.1: sale con 0" 0 "$ST"
+contiene "  conserva el host 127.0.0.1 y cambia el puerto" "$(cat "$CFG")" 'service: http://127\.0\.0\.1:8105'
+
 titulo "validaciones de entrada"
 reset; runx -- 'Mi Repo!'
 igual "nombre de repo no valido: sale con 1" 1 "$ST"

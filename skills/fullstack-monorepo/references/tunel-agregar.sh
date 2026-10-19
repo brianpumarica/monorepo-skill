@@ -87,7 +87,7 @@ command -v flock >/dev/null 2>&1 && flock -w 60 9
 puerto_actual() {
   awk -v h="$host" '
     $0 ~ "^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*" h "[[:space:]]*$" { f = 1; next }
-    f && /service:/ { sub(/.*localhost:/, ""); sub(/[^0-9].*/, ""); print; exit }
+    f && /service:/ { sub(/.*:/, ""); sub(/[^0-9].*/, ""); print; exit }
     f && /^[[:space:]]*-[[:space:]]/ { exit }' "$CONFIG"
 }
 # ¿La entrada de $host la creo este script? (el comentario con el marcador va justo arriba)
@@ -134,7 +134,7 @@ else
     nuevo=$(mktemp)
     awk -v h="$host" -v p="$puerto" '
       $0 ~ ("^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*" h "[[:space:]]*$") { f = 1; print; next }
-      f && /service:/ { sub(/localhost:[0-9]+/, "localhost:" p); f = 0 }
+      f && /service:/ { sub(/:[0-9]+[[:space:]]*$/, ":" p); f = 0 }
       { print }' "$CONFIG" > "$nuevo"
     accion="actualizar"
   else
