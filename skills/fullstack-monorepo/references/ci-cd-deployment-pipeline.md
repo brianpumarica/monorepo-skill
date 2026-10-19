@@ -40,10 +40,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 env:
   # Tag inmutable por commit. Con `:latest` no existe imagen anterior a la que volver cuando
   # la verificación falla, y el rollback es imposible por construcción (§2.1).
@@ -51,17 +47,34 @@ env:
 
 jobs:
   # ==========================================
+  # JOB 0: VALIDACIÓN (lint / types / tests / build). §2.7
+  # ==========================================
+  # Es el workflow reutilizable validate.yml, el mismo que corre en cada PR: así el deploy no
+  # arranca con un commit roto aunque el repo no tenga protección de rama. Un repo sin ninguna
+  # validación borra este job y el `needs: validate` de abajo.
+  validate:
+    name: Validate
+    uses: ./.github/workflows/validate.yml
+
+  # ==========================================
   # JOB 1: BACKEND DEPLOYMENT ON RASPBERRY PI
   # ==========================================
   deploy-backend:
     name: Deploy Backend on Raspberry Pi 5
+    needs: validate
     runs-on: [self-hosted, linux, rpi5]
     # Un job colgado en el runner self-hosted único bloquea a TODOS los proyectos del host
     # hasta el timeout por defecto (6 h). 30 min es holgado para un build ARM completo.
     timeout-minutes: 30
+    # La serialización va en el JOB y no en el workflow: un grupo a nivel workflow lo comparten
+    # los PR (que no despliegan) y el deploy, y un PR que llega mientras hay un deploy en cola
+    # cancela el deploy pendiente. Dos deploys del mismo repo nunca corren a la vez.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # El .env vive SOLO en env-backups/<repo>/ y se copia en cada deploy: nunca se reutiliza
       # el del workspace (puede estar viejo) ni se cae a .env.example. Un .env de ejemplo en
@@ -111,7 +124,7 @@ jobs:
           # `pg_dump | gzip` daría 0 y dejaría un gzip de 20 bytes.
           set -o pipefail
           set -a; . ./.env; set +a
-          DB="${PROJECT_PREFIX:-app}-database"
+          DB="${DB_CONTAINER_NAME:-${PROJECT_PREFIX:-app}-database}"
           # Subcarpeta propia: el backup diario (scripts/backup.sh) comparte la raiz y su
           # rotacion es otra; si compartieran carpeta, `tail -n +8` borraria los diarios.
           BACKUP_DIR="/home/github-runner/backups/${{ github.event.repository.name }}/pre-deploy"
@@ -211,11 +224,17 @@ jobs:
 
       # La ruta publica del Tunnel la registra un script de root instalado UNA vez en el servidor
       # (§2.6), no un script del repo: sudoers lo permite solo a el, y no cambia con un push.
+      # Solo corre si el .env del servidor define TUNEL_HOST (el host publico completo): sin esa
+      # condicion, un proyecto que ya tenia otra ruta crearia una nueva + su CNAME y reiniciaria
+      # cloudflared (unos segundos sin servicio para todos los proyectos del host).
       - name: Register Cloudflare Tunnel route
         env:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          if [ -x /usr/local/sbin/tunel-agregar ]; then
+          TUNEL_HOST=$(grep -m1 '^TUNEL_HOST=' .env | cut -d= -f2- | tr -d '"\r' || true)
+          if [ -z "$TUNEL_HOST" ]; then
+            echo "ℹ️ Sin TUNEL_HOST en el .env del servidor: la ruta del Tunnel no se toca (§2.6)."
+          elif [ -x /usr/local/sbin/tunel-agregar ]; then
             sudo -n /usr/local/sbin/tunel-agregar "$REPO_NAME"
           else
             echo "ℹ️ Sin tunel-agregar en este servidor: la ruta del Tunnel va a mano (§3.1 Fase B)."
@@ -244,12 +263,15 @@ jobs:
     # El frontend no se publica si el backend no quedó sano: evita dejar una SPA en
     # producción apuntando a una API caída.
     needs: deploy-backend
+    concurrency:
+      group: production-deploy-frontend
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js (Node 22 required for pnpm 10 / node:sqlite)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -305,8 +327,16 @@ jobs:
 > el script `"$VARIABLE"` entre comillas.
 
 > **Validaciones antes del deploy.** Si el repositorio tiene lint, tests o type-check, van en un
-> job propio y los jobs de despliegue lo declaran en `needs:`. Un job de validación que corre en
+> workflow reutilizable (`validate.yml`, §2.7) que corre en cada PR **y** que el deploy llama como su
+> primer job; los jobs de despliegue lo declaran en `needs:`. Un job de validación que corre en
 > paralelo al deploy no protege nada: avisa cuando el commit roto ya está en producción.
+
+> [!WARNING]
+> **`checkout@v5` y `setup-node@v5` corren sobre Node 24** (las `@v4` sobre Node 20, con el aviso de
+> deprecación en cada corrida). En el runner self-hosted piden la versión **2.327.1 o posterior** del
+> agente: el runner se actualiza solo salvo que alguien lo haya desactivado. Verificarlo antes de
+> subir el `@v5` en una Pi (`./run.sh --version` en la carpeta del runner, o la página del runner en
+> *Settings → Actions → Runners*); con un agente viejo el job falla al bajar la acción.
 
 ### 2.1 Por qué el tag por commit no es opcional
 
@@ -445,12 +475,16 @@ lugar, [`tunel-agregar.sh`](./tunel-agregar.sh) se instala **una vez** en el ser
   últimas) y, si `cloudflared` no queda activo tras reiniciar, **restaura** la copia.
 
 > [!IMPORTANT]
-> **Este paso es para proyectos nuevos o con ruta `api-<repo>`.** En un proyecto que ya tenía otra
-> ruta, sin `TUNEL_HOST` el deploy crearía una ruta nueva + su CNAME y **reiniciaría `cloudflared`**
-> (unos segundos sin servicio para todos). Dos formas seguras: definir `TUNEL_HOST` con la ruta
-> real (si coincide con el config a mano y el puerto es el mismo, no hace nada ni reinicia; si el
-> puerto difiere, falla y pide corregirlo a mano), o no poner el paso en ese `deploy.yml`.
+> **El paso del deploy solo corre si el `.env` del servidor define `TUNEL_HOST`.** La plantilla lo
+> condiciona a propósito: sin `TUNEL_HOST`, un proyecto que ya tenía otra ruta crearía una nueva + su
+> CNAME y **reiniciaría `cloudflared`** (unos segundos sin servicio para todos). Con la condición, el
+> job dice «Sin TUNEL_HOST» y sigue. Entonces: un proyecto **nuevo** pone en su `.env`
+> `TUNEL_HOST=api-<repo>.<dominio>` (activa el paso); uno que **ya tenía** ruta pone la real (si
+> coincide con el config a mano y el puerto es el mismo, no hace nada ni reinicia; si el puerto
+> difiere, falla y pide corregirlo a mano); y uno que no quiere el paso lo deja sin la variable.
 > Además el script necesita `PROJECT_PREFIX` en el `.env` del servidor: sin él, el job queda rojo.
+> El nombre no tiene por qué empezar con `api-`: una app de usuario (Next full-stack) pone su host
+> público, ver [`perfiles-de-despliegue.md`](./perfiles-de-despliegue.md).
 
 > [!NOTE]
 > Honestidad sobre el alcance: `github-runner` ya pertenece al grupo `docker`, que equivale a
@@ -493,6 +527,53 @@ Quitar una ruta **no borra el CNAME** de DNS (`cloudflared` no tiene un comando 
 en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él, la ruta queda en el
 `config.yml` y el script avisa que falta crear el CNAME.
 
+### 2.7 Validar en cada PR y antes de cada deploy
+
+Un repo privado del plan gratis **no tiene protección de rama**: nada impide mergear un PR rojo, y el
+deploy corre igual. Por eso la validación vive en un workflow reutilizable que se usa dos veces:
+
+- en cada **PR**, por su propio `on: pull_request` (nadie despliega, solo se valida);
+- como primer job del `deploy.yml` (`uses: ./.github/workflows/validate.yml`), de modo que un push a
+  `main` con el commit roto no llega a la Pi.
+
+`.github/workflows/validate.yml` (ajustar los comandos al proyecto; un paso que no aplica se borra):
+
+```yaml
+name: Validate
+
+on:
+  pull_request:
+  workflow_call:   # lo llama deploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Lint, types, tests y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm   # o pnpm (con pnpm/action-setup antes)
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm run typecheck --if-present
+      - run: npm test --if-present
+      - run: npm run build --if-present
+```
+
+Reglas: **(1)** `--if-present` evita que un script ausente rompa el job, pero un repo sin ningún
+linter no debe fingir tenerlo: se deja el paso afuera y se anota como pendiente (no se agrega un
+`eslint` por cumplir). **(2)** Un build que solo pasa con `ignoreBuildErrors` no valida nada
+(SKILL §5). **(3)** El `workflow_call` hereda `permissions` y no ve los secrets del llamador: la
+validación no los necesita, y si un test los pidiera hay que pasarlos con `secrets: inherit`.
+**(4)** Un repo **solo de frontend** usa el mismo patrón en un único archivo: ver
+[`perfiles-de-despliegue.md`](./perfiles-de-despliegue.md) §2.
+
 ---
 
 ## 3. Vercel CLI Strategy & Monorepo Gotchas
@@ -500,6 +581,7 @@ en el panel de Cloudflare. El primer `route dns` necesita el `cert.pem`; sin él
 ### Why Vercel CLI instead of Native Git Integration?
 - **Hobby Plan Limitation**: Vercel blocks native Git repository linking when a repository is **both private and owned by a GitHub Organization** (it demands an upgrade to the Pro plan).
 - **Zero-Cost Solution**: Deploying through **Vercel CLI in GitHub Actions** using a personal access token compiles and uploads directly via API with full monorepo support without organization upgrade restrictions.
+- **Coautores (`Co-Authored-By`)**: en el plan Hobby, Vercel **bloquea por Git los commits con coautores que no son del equipo**, aun en un repo personal (pitfall 17). Con la CLI desde Actions no pasa: el deploy no mira el autor del commit.
 
 ### Required GitHub Secrets (`Settings > Secrets and variables > Actions`)
 | Secret | Description | Where to obtain |
@@ -611,8 +693,8 @@ del Tunnel.
    ([`puertos.md`](./puertos.md) §2).
 4. **Ruta del Tunnel para el Backend.** Si el servidor tiene `tunel-agregar` instalado (§2.6), **el
    deploy la registra solo** (paso "Register Cloudflare Tunnel route", con el puerto del `.env`) y
-   no hay nada que hacer (si la ruta pública ya existía con otro nombre, agregar `TUNEL_HOST` al
-   `.env` del servidor: §2.6). A mano, solo en un servidor sin él:
+   solo hay que poner `TUNEL_HOST=api-<proyecto>.<dominio>` (o la ruta que ya existía) en el
+   `.env` del servidor: sin esa variable el paso no corre (§2.6). A mano, solo en un servidor sin él:
    En `/etc/cloudflared/config.yml` (o Zero Trust Dashboard), agregar la regla de ingress:
    ```yaml
    - hostname: api-<proyecto>.<dominio>
@@ -728,7 +810,7 @@ legible por otros. Para un `.env` o cualquier cosa con secretos, `-m 600`.
 ### 3. Node.js 22 & pnpm 10 Compatibility (`node:sqlite`)
 - **Problem**: `spawn pnpm ENOENT` or `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: node:sqlite`.
 - **Causa**: pnpm v10+ uses the native `node:sqlite` built-in module, which requires Node.js v22.13+.
-- **Solution**: Always configure `actions/setup-node@v4` with `node-version: 22`.
+- **Solution**: Always configure `actions/setup-node@v5` with `node-version: 22`.
 
 ### 4. Production Database Seeder Execution
 - **Problem**: In production images where `devDependencies` are pruned, `ts-node` is missing and `prisma/seed.ts` fails silently or crashes the entrypoint.
@@ -851,6 +933,17 @@ legible por otros. Para un `.env` o cualquier cosa con secretos, `-m 600`.
 - **Y en PowerShell**: los `--jq` con comillas dobles adentro (`"\(.name)  \(.status)"`) se rompen
   (`accepts 1 arg(s), received 2`), y un `<org>` sin reemplazar es una redirección. Estos comandos
   son para Git Bash.
+
+### 17. Vercel Hobby Bloquea los Commits con `Co-Authored-By` (Integración de Git)
+- **Problem**: el deploy de Vercel por la integración de Git falla o queda bloqueado en commits cuyo
+  mensaje trae `Co-Authored-By: …` (por ejemplo los que agrega un asistente de código), con un
+  mensaje sobre el autor del commit y el equipo.
+- **Causa**: Hobby solo despliega commits de miembros del equipo; un coautor ajeno cuenta como
+  autor no autorizado. Pasa también en un repo personal.
+- **Solution**: no desplegar por la integración de Git. Desconectarla (`alta-proyecto.sh`, paso 2, lo
+  hace con `DELETE /v9/projects/<id>/link`) y publicar con la CLI desde el workflow
+  ([`perfiles-de-despliegue.md`](./perfiles-de-despliegue.md) §2): ahí el autor del commit no se
+  mira. Si se deja la integración conectada, queda además un check rojo de Vercel en cada PR.
 
 ---
 

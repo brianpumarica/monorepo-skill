@@ -43,10 +43,10 @@ deploy-frontend:
   runs-on: ubuntu-latest
   steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Node.js (Node 22 required for pnpm 10 / node:sqlite)
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: 22
 
@@ -101,7 +101,7 @@ deploy-frontend:
 ### 3. Node.js 22 & pnpm 10 Compatibility (`node:sqlite`)
 - **Problem**: `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: node:sqlite` during CI build.
 - **Causa**: pnpm v10+ uses `node:sqlite`, which requires Node.js v22.13+.
-- **Solution**: Always configure `actions/setup-node@v4` with `node-version: 22`.
+- **Solution**: Always configure `actions/setup-node@v5` with `node-version: 22`.
 
 ---
 
@@ -215,7 +215,7 @@ export default defineConfig({
 
 - [ ] Vercel Root Directory set to `apps/web` with "Include files outside Root" checked.
 - [ ] Vercel CLI secrets configured in GitHub (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
-- [ ] Node.js version set to `22` in CI workflow (`actions/setup-node@v4`).
+- [ ] Node.js version set to `22` in CI workflow (`actions/setup-node@v5`).
 - [ ] `API_URL` (mapped to `NEXT_PUBLIC_API_URL` / `VITE_API_URL`) in the `env:` of the `vercel build` and `vercel deploy` steps, and `VERCEL_TOKEN` in `env:` (no `--token=` inside `run:`).
 - [ ] Vercel CLI executed from monorepo root without `working-directory` duplicate flag.
 - [ ] Ignored Build Step configured with `npx turbo-ignore web`.

@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -77,6 +77,6 @@ jobs:
 | **`404 Not Found` on API requests** | `NEXT_PUBLIC_API_URL` missing at build time | Pass `NEXT_PUBLIC_API_URL` in `vercel build` env block |
 | **`404 Not Found` on SPA route refresh** | Missing SPA rewrite rule | Add `vercel.json` with `{"source": "/(.*)", "destination": "/index.html"}` |
 | **`ENOENT apps/web/apps/web`** | `working-directory` duplicate | Run Vercel CLI from monorepo root |
-| **`node:sqlite missing`** | Node.js < 22 used with pnpm 10 | Use `actions/setup-node@v4` with `node-version: 22` |
+| **`node:sqlite missing`** | Node.js < 22 used with pnpm 10 | Use `actions/setup-node@v5` with `node-version: 22` |
 | **CORS errors in browser** | Backend origin header mismatch | Add `*.vercel.app` to backend `CORS_ALLOWED_ORIGINS` |
 | **Build timeout on monorepo** | Cache miss on shared packages | Configure `turbo-ignore` and link Vercel Remote Cache |
