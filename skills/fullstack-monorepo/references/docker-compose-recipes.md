@@ -168,6 +168,41 @@ produce el mismo efecto.
 El `context` y el `dockerfile` de cada servicio dependen del layout del repo, que es un eje
 aparte: está en el §0 de [`dockerfile-recipes.md`](./dockerfile-recipes.md).
 
+### 0.3 Separar dev de prod y renombrar la variable del volumen sin perder datos
+
+**Dev y prod no comparten nombres** (§0.1): la base de desarrollo es `<prefijo>-database-dev` con el
+volumen `<prefijo>_pgdata-dev`; la de producción, `<prefijo>-database` con `<prefijo>_pgdata`. Un
+compose de desarrollo que use los nombres de producción, en una máquina donde también corra
+producción (el propio servidor), pisa su base.
+
+**Repo que ya tenía los dos con el mismo nombre** (lo más común). Al separarlos, el volumen de
+*desarrollo* pasa a llamarse distinto y la base de dev **arranca vacía**. Para conservarla:
+
+```bash
+# 1. Con el nombre viejo del volumen (el que ya existe), decirle a dev que lo siga usando.
+#    En el .env LOCAL (no en el del servidor):
+VOLUME_PGDATA_DEV_NAME=<el_nombre_viejo>      # docker volume ls | grep pgdata
+# 2. o copiarlo al nombre nuevo, una vez, con el contenedor de la base detenido:
+docker volume create <prefijo>_pgdata-dev
+docker run --rm -v <viejo>:/from -v <prefijo>_pgdata-dev:/to alpine sh -c 'cp -a /from/. /to/'
+```
+
+Producción **no cambia de nombre**: su volumen sigue siendo el que ya tiene datos. Si el `.env` del
+servidor lo fija con otra variable (`VOLUME_DB`, `DB_VOLUME_NAME`), el default anidado del compose de
+§2 lo sigue encontrando mientras se migra:
+
+```yaml
+name: ${VOLUME_PGDATA_NAME:-${VOLUME_DB:-${PROJECT_PREFIX:-app}_pgdata}}   # transitorio
+```
+
+⚠️ **Antes del próximo deploy**, renombrar la variable en el `.env` del servidor
+(`VOLUME_PGDATA_NAME=<valor que tenía VOLUME_DB>`) y recién entonces quitar el anidado del compose.
+Si se quita primero, o si el `.env` del servidor no tiene ninguna de las dos y el nombre no coincide
+con `<prefijo>_pgdata`, **producción levanta con un volumen nuevo y vacío** (el `up` no avisa: crea el
+volumen y la app arranca sin datos). Comprobarlo sin tocar nada:
+`docker compose -f docker-compose.prod.yml config | grep -A1 'pgdata:'` debe mostrar el nombre del
+volumen que `docker volume ls` ya lista.
+
 ---
 
 ## 1. `docker-compose.yml` (Development & Hybrid by Default)
@@ -176,7 +211,9 @@ aparte: está en el §0 de [`dockerfile-recipes.md`](./dockerfile-recipes.md).
 services:
   database:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
-    container_name: ${PROJECT_PREFIX:-app}-database
+    # Nombres de DESARROLLO (-dev): con los mismos de prod, levantar dev en el servidor se lleva
+    # puesta la base productiva (§0). Los lee la variable del contrato si el .env la define.
+    container_name: ${DB_DEV_CONTAINER_NAME:-${PROJECT_PREFIX:-app}-database-dev}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"   # loopback: la base nunca sale de la máquina (§4.9)
@@ -260,7 +297,7 @@ services:
 
 volumes:
   pgdata:
-    name: ${PROJECT_PREFIX:-app}_pgdata
+    name: ${VOLUME_PGDATA_DEV_NAME:-${PROJECT_PREFIX:-app}_pgdata-dev}   # -dev: nunca el volumen de prod (§0.3)
 
 networks:
   app-net:
@@ -281,7 +318,7 @@ networks:
 services:
   database:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
-    container_name: ${PROJECT_PREFIX:-app}-database
+    container_name: ${DB_CONTAINER_NAME:-${PROJECT_PREFIX:-app}-database}
     restart: unless-stopped
     # Solo en loopback (§4.9): el backend llega por la red interna `app-net`, y `127.0.0.1`
     # alcanza para un psql o un tunel SSH desde el propio servidor. Publicar 5432 en todas las
@@ -346,7 +383,10 @@ services:
 
 volumes:
   pgdata:
-    name: ${PROJECT_PREFIX:-app}_pgdata
+    # Anidado a proposito: si el repo ya usaba otra variable para el volumen (VOLUME_DB, DB_VOLUME_NAME...),
+    # el .env del servidor puede seguir con ella hasta renombrarla, sin que prod arranque con un
+    # volumen vacio (§0.3).
+    name: ${VOLUME_PGDATA_NAME:-${PROJECT_PREFIX:-app}_pgdata}
 
 networks:
   app-net:

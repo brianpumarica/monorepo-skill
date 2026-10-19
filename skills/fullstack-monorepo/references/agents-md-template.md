@@ -38,7 +38,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 | Service | Container Name | Host Port — desarrollo (`puerto asignar`) | Host Port — servidor (`chequear-host.sh alta`) | Internal Port |
 | :--- | :--- | :--- | :--- | :--- |
-| **Database** | `[PROJECT_PREFIX]-database` | `[DB_HOST_PORT local]` | `[DB_HOST_PORT servidor]` | `5432` |
+| **Database** | `[PROJECT_PREFIX]-database-dev` (prod: `[PROJECT_PREFIX]-database`) | `[DB_HOST_PORT local]` | `[DB_HOST_PORT servidor]` | `5432` |
 | **Backend** | `[PROJECT_PREFIX]-backend-dev` | `[BACKEND_HOST_PORT local]` | `[BACKEND_HOST_PORT servidor]` | igual al de desarrollo / `${PORT}` |
 | **Frontend** | `[PROJECT_PREFIX]-frontend-dev` | `[FRONTEND_HOST_PORT local]` | `[FRONTEND_HOST_PORT servidor]` | `${FRONTEND_PORT}` |
 
@@ -48,7 +48,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ---
 
 ## 4. Installed & Recommended Agent Skills
-- `fullstack-monorepo`: Main monorepo orchestrator and standards enforcer.
+- `fullstack-monorepo` **v[X.Y.Z]** (copia instalada el [AAAA-MM-DD]): Main monorepo orchestrator and standards enforcer. La versión sale de `metadata.version` en `.agents/skills/fullstack-monorepo/SKILL.md`; cada vez que se actualiza la copia (SKILL §6), se cambia acá.
 - `docker-hardening`: Deep Docker security, non-root execution, and debugging operations.
 - `prisma-database` / `fastapi-backend` / `nestjs-backend`: Database & backend architecture.
 - `vercel-monorepo-deploy`: Frontend cloud deployment configuration.
@@ -75,6 +75,12 @@ docker compose -f docker-compose.prod.yml up -d --build
    los desvíos más frecuentes.
 3. **La matriz de puertos incluye los del host**, no sólo los del proyecto, cuando el servidor es
    compartido.
+4. **La versión de la skill se anota y se mantiene.** La línea de `fullstack-monorepo` de la sección 4
+   lleva el número de versión de la copia instalada: sin él, nadie sabe contra qué reglas se auditó el
+   repo ni cuándo conviene actualizarla (`CHANGELOG.md` de la skill dice qué cambió).
+5. **Un repo sin Docker (solo frontend en Vercel)** reemplaza las secciones 2 y 3 por los comandos
+   del proyecto (`npm run dev`, `build`, `lint`), el puerto del servidor de desarrollo y una línea sobre
+   el despliegue («push a `main` → Actions → Vercel; el PR solo compila»). Ver `perfiles-de-despliegue.md` §2.
 
 ### Secciones obligatorias adicionales de la plantilla
 
