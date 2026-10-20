@@ -343,8 +343,9 @@ jobs:
 > **`checkout@v5` y `setup-node@v5` corren sobre Node 24** (las `@v4` sobre Node 20, con el aviso de
 > deprecación en cada corrida). En el runner self-hosted piden la versión **2.327.1 o posterior** del
 > agente: el runner se actualiza solo salvo que alguien lo haya desactivado. Verificarlo antes de
-> subir el `@v5` en una Pi (`./run.sh --version` en la carpeta del runner, o la página del runner en
-> *Settings → Actions → Runners*); con un agente viejo el job falla al bajar la acción.
+> subir el `@v5` en una Pi. La forma más rápida, sin entrar al servidor: el log de cualquier corrida reciente
+> del job de la Pi trae la línea `Current runner version: '2.xxx.x'` en «Set up job»
+> (`gh run view <id> --log | grep 'Current runner version'`); o `./run.sh --version` en la carpeta del runner; con un agente viejo el job falla al bajar la acción.
 
 ### 2.1 Por qué el tag por commit no es opcional
 
