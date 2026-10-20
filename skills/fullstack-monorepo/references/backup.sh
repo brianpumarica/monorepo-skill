@@ -10,6 +10,9 @@
 #    puede abrirlo, que es como un backup fallo en silencio): usuario y base salen del
 #    contenedor de la base, y los archivos subidos de los montajes del backend.
 # 4. Rotacion para no llenar el disco del host compartido.
+# 4b. Opcional: copia FUERA de la Pi con rclone (regla 3-2-1: los backups locales viven en el mismo
+#    disco que los datos). Se activa con OFFSITE_REMOTE (p. ej. gdrive:backups/<repo>); sin la variable no
+#    hace nada. Ver ci-cd-deployment-pipeline.md §2.5.
 # 5. Si falla, AVISA: llama a $AVISAR (por defecto /home/github-runner/avisar.sh, plantilla en
 #    avisar.sh) con el mensaje. Un backup que falla en silencio no es un backup. Si ese script
 #    no existe, solo queda el log. verificar-backup.sh cubre el otro caso: que este script ni
@@ -24,6 +27,9 @@ UPLOADS_DEST=""                     # ruta DENTRO del backend (ej. /app/uploads)
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 AVISAR="${AVISAR:-/home/github-runner/avisar.sh}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/$REPO_NAME}"
+OFFSITE_REMOTE="${OFFSITE_REMOTE:-}"                      # vacio = sin copia afuera; ej. gdrive:backups/mi-repo
+OFFSITE_RETENTION_DAYS="${OFFSITE_RETENTION_DAYS:-30}"    # cuanto se conserva la copia de afuera
+RCLONE="${RCLONE:-rclone}"
 # -----------------------------------------------------------------------------
 
 DATE=$(date +"%Y%m%d_%H%M%S")
@@ -85,4 +91,30 @@ fi
 BORRADOS=$(find "$BACKUP_DIR" -type f \( -name "db_${REPO_NAME}_*.sql.gz" -o -name "files_${REPO_NAME}_*.tar.gz" \) \
   -mtime +"$RETENTION_DAYS" -print -delete | wc -l)
 log "Rotacion: $BORRADOS archivos de mas de $RETENTION_DAYS dias eliminados."
+
+# --- 4. Copia fuera de la Pi (opcional) ----------------------------------------
+# Un fallo aca NO invalida el backup local (ya esta hecho y verificado): se avisa y el script termina
+# bien, igual que cuando fallan solo los archivos. Se sube SOLO lo de esta corrida (copyto verifica
+# tamano/hash al terminar), y se borra de afuera lo que pasa de OFFSITE_RETENTION_DAYS. Los backups
+# llevan datos de usuarios: el remoto tiene que ser de tipo "crypt" (cifra antes de subir).
+if [ -n "$OFFSITE_REMOTE" ]; then
+  if ! command -v "$RCLONE" >/dev/null 2>&1; then
+    log "⚠️ OFFSITE_REMOTE esta definido pero no hay '$RCLONE' instalado: no se copio nada afuera."
+    avisar "⚠️ Backup de $REPO_NAME: quedo SOLO en la Pi (falta rclone para la copia de afuera)"
+  else
+    afuera_ok=1
+    for f in "$DB_FILE" ${FILES_FILE:+"$FILES_FILE"}; do
+      [ -s "$f" ] || continue
+      "$RCLONE" copyto "$f" "$OFFSITE_REMOTE/$(basename "$f")" || afuera_ok=0
+    done
+    if [ "$afuera_ok" -eq 1 ]; then
+      "$RCLONE" delete --min-age "${OFFSITE_RETENTION_DAYS}d" "$OFFSITE_REMOTE" || log "⚠️ No se pudo rotar la copia de afuera (no es grave)."
+      log "✅ Copia afuera: $OFFSITE_REMOTE"
+    else
+      log "⚠️ La copia de afuera fallo; el backup local esta bien."
+      avisar "⚠️ Backup de $REPO_NAME: la base se respaldo en la Pi pero la copia de afuera ($OFFSITE_REMOTE) FALLO"
+    fi
+  fi
+fi
+
 log "==> Listo. $(find "$BACKUP_DIR" -type f | wc -l) archivos, $(du -sh "$BACKUP_DIR" | cut -f1) en $BACKUP_DIR"

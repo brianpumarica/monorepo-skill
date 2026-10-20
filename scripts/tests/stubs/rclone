@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# rclone falso: anota cada llamada en RCLONE_LOG; RCLONE_FALLA=1 hace fallar `copyto`.
+[ -z "${RCLONE_LOG:-}" ] || echo "rclone $*" >> "$RCLONE_LOG"
+case "$1" in copyto) [ -z "${RCLONE_FALLA:-}" ] || { echo "rclone: error de red" >&2; exit 1; } ;; esac
+exit 0

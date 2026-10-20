@@ -2,7 +2,7 @@
 name: fullstack-monorepo
 description: Estándar y runbook para monorepos full-stack en Docker — auditar, scaffoldear y refactorizar el repo (compose dev/prod, Dockerfiles multi-stage non-root, entrypoint con espera de base, hot-reload en contenedores, SPA routing) y desplegarlo con GitHub Actions a Vercel más un runner self-hosted (o, en un repo solo de frontend, a Vercel con la CLI). Usar cuando el pedido toque docker-compose, Dockerfile, entrypoint, deploy.yml, deploy-vercel.yml, o el estado real de lo que está corriendo en el servidor. Tres modos - analiza (auditoría y plan), ejecuta (implementación y eliminación de legacy), inspecciona (diagnóstico de sólo lectura del despliegue).
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Fullstack Monorepo Standard & Scaffold Runbook

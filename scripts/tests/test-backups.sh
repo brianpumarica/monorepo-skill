@@ -102,6 +102,29 @@ igual "  la base quedo respaldada" 1 "$(dbs | wc -l | tr -d ' ')"
 igual "  no queda un files_ a medias" 0 "$(find "$BK" -name 'files_*' | wc -l | tr -d ' ')"
 contiene "  pero AVISA que faltaron los archivos" "$(cat "$AVISOS")" 'NO los archivos de /app/uploads'
 
+titulo "backup.sh: copia fuera de la Pi (rclone, opcional)"
+RLOG="$T/rclone.log"
+estado_limpio; instalar; : > "$RLOG"; backup RCLONE_LOG="$RLOG"
+igual "sin OFFSITE_REMOTE: sale con 0" 0 "$ST"
+igual "  y no llama a rclone" "" "$(cat "$RLOG")"
+estado_limpio; instalar con-archivos; : > "$RLOG"; backup RCLONE_LOG="$RLOG" OFFSITE_REMOTE="crypt:backups/demo"
+igual "con OFFSITE_REMOTE: sale con 0" 0 "$ST"
+contiene "sube el volcado" "$(cat "$RLOG")" '^rclone copyto .*db_demo_[0-9_]+\.sql\.gz crypt:backups/demo/db_demo_[0-9_]+\.sql\.gz'
+contiene "sube los archivos" "$(cat "$RLOG")" '^rclone copyto .*files_demo_[0-9_]+\.tar\.gz crypt:backups/demo/files_demo_'
+contiene "rota lo de afuera (30 dias por defecto)" "$(cat "$RLOG")" '^rclone delete --min-age 30d crypt:backups/demo$'
+contiene "lo dice en el log" "$OUT" 'Copia afuera: crypt:backups/demo'
+igual "no avisa nada si salio bien" "" "$(cat "$AVISOS")"
+estado_limpio; : > "$RLOG"; backup RCLONE_LOG="$RLOG" OFFSITE_REMOTE="crypt:x" OFFSITE_RETENTION_DAYS=7
+contiene "OFFSITE_RETENTION_DAYS cambia la retencion de afuera" "$(cat "$RLOG")" 'delete --min-age 7d'
+estado_limpio; : > "$RLOG"; backup RCLONE_LOG="$RLOG" OFFSITE_REMOTE="crypt:x" RCLONE_FALLA=1
+igual "la copia de afuera falla: el backup termina con 0 (el local esta bien)" 0 "$ST"
+igual "  el volcado local quedo" 1 "$(dbs | wc -l | tr -d ' ')"
+contiene "  AVISA que la copia de afuera fallo" "$(cat "$AVISOS")" 'copia de afuera \(crypt:x\) FALLO'
+no_contiene "  y no rota lo de afuera si no se pudo subir" "$(cat "$RLOG")" 'rclone delete'
+estado_limpio; backup OFFSITE_REMOTE="crypt:x" RCLONE="$T/no-existe-rclone"
+igual "sin rclone instalado: sale con 0" 0 "$ST"
+contiene "  avisa que quedo solo en la Pi" "$(cat "$AVISOS")" 'SOLO en la Pi'
+
 titulo "backup.sh: rotacion"
 estado_limpio; instalar
 vieja "$BK/db_demo_20200101_000000.sql.gz" 40

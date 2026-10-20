@@ -467,6 +467,36 @@ sudo -u github-runner /home/github-runner/avisar.sh "prueba de aviso"
 `700`), con un contenedor inexistente (lo dice y sale con `1`), `verificar-backup.sh` sobre los
 backups reales y `avisar.sh` sin `AVISO_URL` (solo log, sale con `0`).
 
+#### Copia fuera de la Pi (regla 3-2-1, opcional)
+
+Los backups de `backup.sh` viven en el **mismo disco** que los datos: si el disco falla, se pierde todo junto.
+`backup.sh` puede copiar cada corrida afuera con [rclone](https://rclone.org) (Google Drive, Cloudflare R2 con
+10 GB gratis, cualquier remoto que rclone soporte). Es opt-in: sin `OFFSITE_REMOTE`, no hace nada.
+
+```bash
+# Una vez por servidor, como el usuario que corre el cron (github-runner):
+sudo -u github-runner rclone config          # 1) el remoto real (drive, s3/R2...)  2) un remoto "crypt" encima
+# El remoto de afuera tiene que ser el CRYPT: los backups llevan datos de usuarios y se cifran antes de subir.
+sudo -u github-runner rclone lsd <remoto-crypt>:                    # prueba de acceso
+sudo -u github-runner chmod 600 /home/github-runner/.config/rclone/rclone.conf
+```
+
+En `scripts/crontab`, la línea del backup lleva la variable (contiene el nombre del repo, como exige el filtro):
+
+```
+0 3 * * * OFFSITE_REMOTE=<remoto-crypt>:backups/<repo> /bin/bash __DIR__/scripts/backup.sh >> $HOME/backups/<repo>/backup.log 2>&1
+```
+
+- Sube **solo** el volcado y los archivos de esa corrida (`rclone copyto` compara tamaño/hash al terminar) y borra de
+  afuera lo que pasa de `OFFSITE_RETENTION_DAYS` (30).
+- Si la copia de afuera falla, el backup local **no** se invalida: avisa con `avisar.sh` y termina bien. Lo mismo si
+  falta `rclone`. `verificar-backup.sh` sigue mirando el backup local de las últimas 36 h.
+- **No** respalda el `.env` del servidor (tiene los secretos): eso se guarda aparte y a mano, no en un tercero.
+- La clave de cifrado del remoto `crypt` es parte del backup: sin ella, lo de afuera no se puede abrir. Guardarla
+  fuera de la Pi (gestor de contraseñas).
+- *Sin probar contra un remoto real*: el script está probado con un `rclone` falso. Antes de depender de esto,
+  restaurar UNA copia de afuera con `rclone copyto` y el ensayo de [`database-lifecycle.md`](./database-lifecycle.md) §6.1.
+
 ### 2.6 Ruta del Tunnel: la registra el servidor, no el repo
 
 Agregar `api-<repo>.<dominio>` al `config.yml` de `cloudflared` requiere `root`, y el deploy corre

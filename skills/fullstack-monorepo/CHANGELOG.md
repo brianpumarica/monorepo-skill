@@ -7,6 +7,17 @@ Convención: **mayor** si una regla nueva o cambiada puede dejar *rojo* a un rep
 (o cambia nombres que ya están en un servidor); **menor** si suma un perfil, una receta o un script
 sin cambiar lo existente; **parche** si corrige texto o un script sin cambiar el contrato.
 
+## 1.2.0 — 2026-10-20
+
+### Qué tiene que revisar un repo que usa una copia
+
+Nada: es opt-in. Un repo que no define `OFFSITE_REMOTE` se comporta exactamente igual.
+
+### Nuevo
+
+- **Copia de los backups fuera de la Pi** (CI/CD §2.5): `backup.sh` sube cada corrida con `rclone` si se define
+  `OFFSITE_REMOTE` (remoto `crypt` recomendado), rota lo de afuera, y si falla avisa sin invalidar el backup local.
+
 ## 1.1.0 — 2026-10-20
 
 Cierra los pendientes de la skill que dejó el feedback de `analiza`. Nada rompe un repo que ya cumplía.
