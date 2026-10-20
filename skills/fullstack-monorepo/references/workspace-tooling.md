@@ -32,6 +32,32 @@
 
 ---
 
+### 1.1 Sin Turbo, con npm: el `package.json` raíz mínimo
+
+Un repo con npm (con o sin `workspaces`) y sin Turborepo cumple el estándar con scripts de orquestación
+de Docker en el `package.json` raíz; no hace falta migrar nada (Fase 1 de la skill):
+
+```json
+{
+  "name": "mi-proyecto",
+  "private": true,
+  "scripts": {
+    "docker:dev": "docker compose up -d",
+    "docker:prod": "docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f backend"
+  }
+}
+```
+
+Si el repo ya tiene `package.json` en la raíz, solo se suman los cuatro `docker:*`. Con `workspaces` se
+agrega `"workspaces": ["apps/*", "packages/*"]` y, si hay un solo `package-lock.json`, ese es el que manda
+([`dockerfile-recipes.md`](./dockerfile-recipes.md) §2b). `docker:down` es **solo para desarrollo**:
+en el servidor, `down` sin `-f docker-compose.prod.yml` actúa sobre lo que Compose cree que es el proyecto.
+Sin Docker (perfil B) estos scripts no van.
+
+---
+
 ## 2. `pnpm-workspace.yaml`
 
 ```yaml

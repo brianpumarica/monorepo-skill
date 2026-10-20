@@ -2,7 +2,7 @@
 name: fullstack-monorepo
 description: Estándar y runbook para monorepos full-stack en Docker — auditar, scaffoldear y refactorizar el repo (compose dev/prod, Dockerfiles multi-stage non-root, entrypoint con espera de base, hot-reload en contenedores, SPA routing) y desplegarlo con GitHub Actions a Vercel más un runner self-hosted (o, en un repo solo de frontend, a Vercel con la CLI). Usar cuando el pedido toque docker-compose, Dockerfile, entrypoint, deploy.yml, deploy-vercel.yml, o el estado real de lo que está corriendo en el servidor. Tres modos - analiza (auditoría y plan), ejecuta (implementación y eliminación de legacy), inspecciona (diagnóstico de sólo lectura del despliegue).
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Fullstack Monorepo Standard & Scaffold Runbook
@@ -84,7 +84,7 @@ La skill NO impone tecnologías que el proyecto no utiliza. En la fase de análi
 | **Node.js / TS (Backend)** | `package.json` en backend (Express / NestJS) | • Multi-stage con `node:22-alpine` y `USER node` non-root.<br>• **`postgresql-client` en la etapa `base`** — sin él no hay `pg_isready` y el arranque muere (receta §8.3).<br>• BuildKit cache mount: `/root/.npm` con npm, `/pnpm/store` con pnpm.<br>• `entrypoint.sh` idempotente con `pg_isready` y `exec "$@"`.<br>• Hot-reload con `tsx watch` + `CHOKIDAR_USEPOLLING=true`. |
 | **Gestor de paquetes** | `package-lock.json` vs `pnpm-lock.yaml` | • **El lockfile manda** y define los comandos de instalación y poda. No migrar de gestor sin pedido explícito ([`workspace-tooling.md`](./references/workspace-tooling.md)). |
 | **Layout del repo** | Apps en `apps/*` vs. en la raíz | • **Eje independiente del gestor**: define el `context` del build y las rutas de los `COPY`. Cualquier combinación es válida (npm con `apps/`, pnpm con apps en la raíz).<br>• Las recetas numeradas son combinaciones frecuentes, no un menú cerrado: si el repo cae entre dos, se toman los comandos de una y las rutas de la otra (recetas §0).<br>• El `.dockerignore` va junto a **cada** contexto de build. |
-| **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` y `USER appuser` non-root.<br>• **`postgresql-client`** en la etapa `base` + `ENTRYPOINT` explícito (no sólo `CMD`).<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir <carpeta de la app>`. |
+| **Python (Backend)** | `requirements.txt` o `pyproject.toml` | • Multi-stage con `python:3.12-slim` (o una más nueva que el proyecto ya use: 3.12 es el mínimo, no el tope) y `USER appuser` non-root.<br>• **`postgresql-client`** en la etapa `base` + `ENTRYPOINT` explícito (no sólo `CMD`).<br>• Virtualenv aislado `/opt/venv`.<br>• Hot-reload con `uvicorn --reload --reload-dir <carpeta de la app>`. |
 | **Frontend SPA (Vite / React / Vue)** | `vite.config.ts` o index.html cliente | • `frontend/nginx.conf` con `try_files $uri $uri/ /index.html;` y Gzip.<br>• `frontend/vercel.json` con rewrites para SPA.<br>• Servidor final ultra-ligero `nginx:alpine` (<10MB RAM). |
 | **Frontend SSR (Next.js)** | `next.config.js/ts` | • `output: 'standalone'` en producción.<br>• Volumen anónimo `/app/.next` y `WATCHPACK_POLLING=true`.<br>• Inyección de variables `NEXT_PUBLIC_*` en build-time. |
 | **Frontend Expo Web** | `app.json` / `eas.json` / dependencia `expo` | • Receta propia (**§7** de `dockerfile-recipes.md`). **No es Vite**: dev es `expo start --web`, build es `expo export -p web` — la salida sí es `dist/`, por eso la etapa de producción se comparte con SPA.<br>• Variables `EXPO_PUBLIC_*` en build-time (mismo mecanismo que `NEXT_PUBLIC_*`).<br>• Volumen anónimo `/app/.expo`.<br>• Si además compila a móvil (`android/`, `ios/`), **la web es un target más**: no migrar el proyecto a Vite para "cumplir el estándar".<br>• Al migrar de nativo a web, verificar módulo por módulo qué soporta realmente la implementación `.web.js`: varios no fallan, sólo hacen menos. |
@@ -285,6 +285,12 @@ Reglas que valen en las dos:
    real de la otra carpeta; el link queda vacío y el `rm` falla recién al final con
    `Device or resource busy`, cuando el daño ya está hecho. Para reemplazar archivos,
    **sobrescribirlos** (`cp -f`); para eliminar una skill, borrar primero el junction.
+   Lo mismo al **borrar un worktree en Windows** de un repo con `node_modules` de pnpm (que son
+   junctions): `git worktree remove` no alcanza y un borrado recursivo que atraviese los junctions se
+   lleva el contenido del store. Primero quitar los junctions sin recorrerlos (`cmd /c rmdir /s /q node_modules`,
+   que desenlaza en vez de borrar el destino), después `git worktree remove`. *(Visto en una sesión de
+   `analiza`; el comando `rmdir` sobre junctions es el comportamiento documentado de Windows, no se
+   reprodujo con pnpm acá.)*
 4. **Auditar el conjunto, no el contenido.** Lo que sí puede desincronizarse es *qué* skills están
    enlazadas: `diff <(ls .agents/skills) <(ls .claude/skills)`. Una skill que aparece en una sola
    de las dos no tiene junction y sólo la ve la mitad de los agentes.
@@ -308,6 +314,11 @@ el estándar de cuando se instaló y deja pasar todo lo que se agregó después.
   versiona `.claude/skills/<skill>` como enlace simbólico relativo (modo `120000`), restaurarlo con
   `git checkout --` en vez de commitear el junction. Si `.agents/` está ignorado, `git add -f`:
   la skill tiene que viajar con el repo.
+- **Linters de documentación del repo (`docs:check`, markdownlint, verificadores de enlaces):** la copia
+  de la skill trae cientos de `.md` con enlaces relativos que solo resuelven dentro de `monorepo-skill`
+  (las skills compañeras no están) y con un estilo que no es el del repo. Se **excluyen** del linter
+  (`.agents/skills/**` y `.claude/skills/**` en su lista de ignorados), no se «arreglan» ni se borran
+  enlaces de la copia: la próxima actualización los pisaría.
 - **Merge sin redeploy:** el cambio no toca la app, así que el commit del merge lleva `[skip ci]`
   en el título y el `push` a `main` no dispara `deploy.yml`.
 - **Verificar:** `diff -rq --strip-trailing-cr .agents/skills/<skill> <clon de monorepo-skill>/skills/<skill>`
@@ -328,7 +339,7 @@ Al recibir `/fullstack-monorepo /ejecuta` (o tras la aprobación de `/analiza`),
 - [ ] Crear `.gitattributes` con `*.sh text eol=lf`, `*.sql text eol=lf`, `Dockerfile* text eol=lf` y `crontab text eol=lf` (bloque completo en `database-lifecycle.md` §3). En un repo existente, `git add --renormalize .`.
 - [ ] Crear `.dockerignore` raíz y `.dockerignore` en backend.
 - [ ] Actualizar `.gitignore` para monorrepos (Vercel, Turbo, logs, data).
-- [ ] Crear `package.json` raíz con scripts de orquestación (`docker:dev`, `docker:prod`, `docker:down`, `docker:logs`).
+- [ ] Crear `package.json` raíz con scripts de orquestación (`docker:dev`, `docker:prod`, `docker:down`, `docker:logs`); la plantilla para npm sin Turbo está en [`workspace-tooling.md`](./references/workspace-tooling.md) §1.1.
 
 ### Fase 2: Orquestación Docker Compose
 - [ ] Consolidar stack de desarrollo en `docker-compose.yml` (dev-first con cero flags).

@@ -46,7 +46,7 @@ Migrar de gestor sin que nadie lo haya pedido es ruido, no cumplimiento
 
 > [!WARNING]
 > **Toda imagen cuyo `ENTRYPOINT` sea `entrypoint.sh` necesita `pg_isready` adentro.**
-> Ni `node:22-alpine` ni `python:3.12-slim` lo traen: hay que instalar `postgresql-client` en la
+> Ni `node:22-alpine` ni `python:3.12-slim` (o una más nueva) lo traen: hay que instalar `postgresql-client` en la
 > etapa `base`, para que lo hereden **desarrollo y producción**. Sin eso el entrypoint de
 > [`database-lifecycle.md`](./database-lifecycle.md) §1 aborta el arranque y el contenedor nunca
 > levanta (§8.3).
@@ -62,7 +62,8 @@ FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 # postgresql-client: lo necesita entrypoint.sh (pg_isready + la consulta de verificacion).
-RUN apk add --no-cache postgresql-client
+# openssl: Prisma lo necesita en alpine 3.17+ (sin el, el motor no carga). Sin Prisma, se quita.
+RUN apk add --no-cache postgresql-client openssl
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
@@ -136,7 +137,7 @@ Para el layout `backend/` + `frontend/` en la raíz, cada uno con su `package-lo
 FROM node:22-alpine AS base
 # postgresql-client: lo necesita entrypoint.sh. Se instala en `base` para que lo hereden
 # tanto development como production.
-RUN apk add --no-cache postgresql-client
+RUN apk add --no-cache postgresql-client openssl
 WORKDIR /app
 
 FROM base AS development
@@ -161,6 +162,14 @@ RUN if [ -f prisma/seed.ts ]; then \
     fi
 RUN test -f dist/main.js || test -f dist/index.js \
     || (echo "ERROR: el build no genero dist/main.js ni dist/index.js"; exit 1)
+# No solo el servidor: TODO lo que el deploy ejecuta. El entrypoint corre las migraciones y el seeder
+# en cada arranque; si falta alguno, el contenedor cae en bucle recien en produccion.
+RUN if [ -f prisma/schema.prisma ]; then \
+      test -d prisma/migrations || (echo "ERROR: falta prisma/migrations"; exit 1); \
+    fi
+RUN if [ -f prisma/seed.ts ]; then \
+      test -f dist/prisma/seed.js || (echo "ERROR: el seeder no se compilo a dist/prisma/seed.js"; exit 1); \
+    fi
 # Poda primero, genera despues: al reves, `npm ci` se lleva puesto el cliente generado.
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 RUN if [ -f prisma/schema.prisma ]; then npx --no-install prisma generate; fi
@@ -179,6 +188,13 @@ EXPOSE 3004
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "dist/main.js"]
 ```
+
+> [!NOTE]
+> **Si `npm ci` falla por el lockfile** (`EUSAGE`, «package.json and package-lock.json are not in sync»):
+> el lockfile se generó con otra versión de npm. Regenerarlo con la que trae la imagen
+> (`docker run --rm -v "$PWD":/app -w /app node:22-alpine npm install --package-lock-only`), commitearlo,
+> y dejar `npm ci` en el Dockerfile. Cambiarlo por `npm install` hace que cada build pueda
+> resolver versiones distintas: el commit que se revierte (CI/CD §2.1) deja de ser el mismo código.
 
 ---
 
@@ -201,7 +217,7 @@ Dos cosas que no son obvias (la primera, comprobada con npm 10.9; la segunda, vi
 
 ```dockerfile
 FROM node:22-alpine AS base
-RUN apk add --no-cache postgresql-client
+RUN apk add --no-cache postgresql-client openssl
 WORKDIR /app
 
 FROM base AS development
@@ -259,6 +275,10 @@ de §8.2.
 ---
 
 ## 3. Backend: Python / FastAPI
+
+> **Python ≥ 3.12.** Las recetas fijan `python:3.12-slim` como mínimo, no como tope: un proyecto que ya
+> corre en 3.13 o más nueva queda como está (no se baja la versión para «cumplir»); uno en 3.11 o menos
+> sube a 3.12 al migrar. Lo único que importa es que la etapa `builder` y la `base` usen la misma.
 
 `apps/api/Dockerfile` (ajustar rutas si el layout es `backend/`).
 

@@ -2,7 +2,8 @@
 # Lo instala el paso "Install project cron" del deploy (ci-cd-deployment-pipeline.md §2.3)
 # en el crontab del usuario del runner, reemplazando las lineas de <repo>. No editar con
 # `crontab -e`: se edita este archivo y se hace push. El deploy cambia el marcador de ruta por
-# la carpeta real. Toda linea tiene que contener el nombre del repo (ruta o log): asi se filtra.
+# la carpeta real. Toda linea DE COMANDO tiene que contener el nombre del repo (ruta o log): asi se
+# filtra. Los comentarios y las lineas en blanco no se instalan (el deploy los descarta).
 # Backup diario a las 03:<minuto>. Escalonar de a 10 minutos: 03:00, 03:10, 03:20, ...
 0 3 * * * /bin/bash __DIR__/scripts/backup.sh >> $HOME/backups/<repo>/backup.log 2>&1
 # Chequeo diario (09:00) de que exista un backup de menos de 36 h; avisa si no. Independiente de

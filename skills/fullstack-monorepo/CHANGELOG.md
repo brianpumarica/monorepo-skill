@@ -7,6 +7,37 @@ Convención: **mayor** si una regla nueva o cambiada puede dejar *rojo* a un rep
 (o cambia nombres que ya están en un servidor); **menor** si suma un perfil, una receta o un script
 sin cambiar lo existente; **parche** si corrige texto o un script sin cambiar el contrato.
 
+## 1.1.0 — 2026-10-20
+
+Cierra los pendientes de la skill que dejó el feedback de `analiza`. Nada rompe un repo que ya cumplía.
+
+### Qué tiene que revisar un repo que usa una copia
+
+- **`crear-env.sh`** ahora asigna puerto solo a las `*_HOST_PORT` vacías que `docker-compose.prod.yml` usa.
+  Un repo cuyo compose de prod lee `${DB_HOST_PORT:-…}` sigue igual; uno que dejaba la línea vacía de un
+  servicio que prod no publica (el frontend en Vercel) ya no aparta un puerto.
+- **El paso «Install project cron»** del `deploy.yml` ya no instala los comentarios de `scripts/crontab` (cada
+  deploy sumaba otra copia) y limpia los que ya estaban repetidos en el crontab del runner.
+
+### Nuevo
+
+- **Variantes de perfil** ([`perfiles-de-despliegue.md`](./references/perfiles-de-despliegue.md) §6): sin base
+  de datos, un solo entorno (solo `docker-compose.prod.yml`) y desplegado por el dueño de la carpeta sin el runner.
+- **Un tercer servicio publicado**: `chequear-host.sh` revisa cualquier `*_HOST_PORT` del `.env` y `alta ADMIN_HOST_PORT`
+  elige un puerto libre; `puerto asignar --con ADMIN,WORKER` los escribe en el bloque; el auditor acepta el par
+  `<X>_HOST_PORT` + `<X>_PORT`.
+- **`rotar-secretos.sh var NOMBRE`** rota cualquier secreto propio, y `jwt` / `all` toleran un proyecto sin `JWT_SECRET`.
+- **`package.json` raíz para npm sin Turbo** ([`workspace-tooling.md`](./references/workspace-tooling.md) §1.1).
+- Recetas de Node: `openssl` para Prisma en alpine, la verificación en el build de migraciones y seeder (no solo
+  del servidor) y qué hacer si `npm ci` falla por el lockfile. Python: 3.12 es el mínimo, no el tope.
+- Linters de documentación del repo y borrado de worktrees con junctions en Windows (SKILL §6).
+
+### Corregido
+
+- `puerto.sh` en Git Bash/Windows: una sola llamada a `netstat -ano` en vez de probar cada puerto (`listar` y
+  `asignar` pasaron de decenas de segundos a ~2 s).
+- `auditar-repos.sh` acepta cualquier job de validación (`lint`, `ci`, `check`…), no solo uno llamado `validate`.
+
 ## 1.0.0 — 2026-10-19
 
 Primera versión numerada. Junta lo que salió de correr `analiza` en 13 repos reales.

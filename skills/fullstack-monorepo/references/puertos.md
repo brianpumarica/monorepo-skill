@@ -32,6 +32,7 @@ puerto asignar            # en la carpeta del proyecto: escribe los puertos en e
 puerto listar             # tus proyectos, sus puertos y cuáles están corriendo AHORA
 puerto quien 4661         # de quién es ese puerto
 puerto liberar <nombre>   # devuelve el bloque de un proyecto que ya no existe
+puerto asignar --con ADMIN,WORKER   # un tercer y cuarto servicio publicado: ADMIN_HOST_PORT/ADMIN_PORT en bloque+3, etc.
 ```
 
 - Funciona **con y sin Docker**: el mismo número vale por fuera y por dentro del contenedor, así
@@ -52,7 +53,8 @@ Un proyecto nuevo, en orden:
    sudo bash /home/github-runner/actions-runner/_work/<repo>/<repo>/scripts/chequear-host.sh alta
    ```
    Imprime `BACKEND_HOST_PORT`, `DB_HOST_PORT` (y `FRONTEND_HOST_PORT` si el frontend va en
-   contenedor) que nadie usa ni tiene reservados, y el próximo horario de backup libre. Va con
+   contenedor) que nadie usa ni tiene reservados, y el próximo horario de backup libre. Con un
+   tercer servicio publicado, se lo pide por nombre: `… chequear-host.sh alta ADMIN_HOST_PORT`. Va con
    `sudo` (no como `github-runner`): así lee el crontab de **todos** los usuarios, no solo el suyo;
    sin root avisa que solo miró el propio (como `github-runner`, un backup de otro usuario a esa
    misma hora no se veía y lo proponía como libre).

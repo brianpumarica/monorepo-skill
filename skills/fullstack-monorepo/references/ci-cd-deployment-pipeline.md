@@ -85,7 +85,9 @@ jobs:
           # Solo SUMA: ademas se exige toda *_PASSWORD / *_SECRET / *_KEY de .env.example que traiga
           # un valor de ejemplo. Una lista escrita a mano se desactualiza (asi se colo una clave
           # de base de ejemplo en produccion: la lista no la incluia).
-          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET POSTGRES_PASSWORD"   # ajustar por proyecto
+          # Ajustar por proyecto: borrar lo que el proyecto NO usa (sin JWT, sin base...). Una variable
+          # que no existe en el .env cuenta como vacia y el deploy falla.
+          REQUIRED_SECRETS: "ADMIN_PASSWORD JWT_SECRET POSTGRES_PASSWORD"
         run: |
           if [ ! -f "$ENV_STORE" ]; then
             echo "❌ No .env found for this repository."
@@ -115,6 +117,8 @@ jobs:
       - name: Check host ports and backup schedule
         run: bash scripts/chequear-host.sh
 
+      # Proyecto SIN base de datos: borrar este paso, el de "Record current version" sigue valiendo
+      # (perfiles-de-despliegue.md §6).
       - name: Backup database before migrations
         run: |
           # El entrypoint corre migraciones al arrancar el contenedor: el respaldo va ANTES
@@ -249,8 +253,12 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           mkdir -p "$HOME/backups/$REPO_NAME"
-          { crontab -l 2>/dev/null | grep -v "$REPO_NAME" || true
-            sed "s#__DIR__#$GITHUB_WORKSPACE#g" scripts/crontab; } | crontab -
+          # Los comentarios y las lineas en blanco de scripts/crontab NO llevan el nombre del repo: el
+          # filtro `grep -v` no los borraria y cada deploy sumaria otra copia. Se instalan solo las
+          # lineas de comando, y de lo que ya habia se descartan los comentarios repetidos (limpia
+          # tambien las pilas que dejaron los deploys anteriores).
+          { crontab -l 2>/dev/null | grep -v "$REPO_NAME" | awk '!/^#/ || !seen[$0]++' || true
+            grep -vE '^[[:space:]]*(#|$)' scripts/crontab | sed "s#__DIR__#$GITHUB_WORKSPACE#g"; } | crontab -
           crontab -l | grep "$REPO_NAME"
 
   # ==========================================
@@ -390,8 +398,10 @@ backup diario de [`backup.sh`](./backup.sh) usa la raíz `backups/<repo>/` con o
 El cron no se edita con `crontab -e`: vive en `scripts/crontab` del repo (plantilla:
 [`crontab`](./crontab)) y el paso "Install project cron" lo instala en el crontab del usuario
 del runner. Reemplaza solo las líneas que contienen el nombre del repo, así que las de otros
-proyectos quedan intactas; por eso **toda línea del archivo debe contener el nombre del repo**
-(basta con que lo lleve la ruta `__DIR__` o la del log). `__DIR__` lo cambia el deploy por la
+proyectos quedan intactas; por eso **toda línea de comando del archivo debe contener el nombre del repo**
+(basta con que lo lleve la ruta `__DIR__` o la del log). Los comentarios y las líneas en blanco no se
+instalan: no llevan el nombre y, de instalarse, cada deploy sumaría otra copia (el paso también
+descarta los comentarios repetidos que ya hubieran quedado). `__DIR__` lo cambia el deploy por la
 carpeta real del workspace.
 
 El horario del backup se escalona de a 10 minutos desde las 03:00 (un proyecto por franja) para
@@ -412,6 +422,11 @@ host ya sabe (los puertos que publican los contenedores y el `crontab` del runne
 | **Cada deploy**, justo después de cargar el `.env` | `bash scripts/chequear-host.sh` | **Falla** si `BACKEND_HOST_PORT`, `DB_HOST_PORT` o `FRONTEND_HOST_PORT` ya los publica el contenedor de **otro** proyecto, figuran en el `.env` guardado de otro repo (aunque esté detenido) o los escucha un proceso ajeno (antes de bajar nada). **Avisa** (`::warning::`) si el backup de este repo cae a menos de 10 min del de otro |
 | **Alta de un proyecto nuevo**, antes de crear el `.env` | `bash scripts/chequear-host.sh alta` | **Elige**: imprime puertos de backend, base y frontend libres, y el próximo horario de backup libre con la línea lista para `scripts/crontab` |
 | **A demanda** | `docker ps --format 'table {{.Names}}\t{{.Ports}}'` y `crontab -l` | Ver el mapa completo (también en el catálogo de `inspecciona`, §6) |
+
+Además de esas tres, `chequear-host.sh` revisa **cualquier otra `*_HOST_PORT`** que tenga el `.env` (un
+tercer servicio publicado: un panel, un worker), y `alta ADMIN_HOST_PORT` elige también un puerto libre para
+ella; `crear-env.sh` lo hace solo con las que están vacías en `.env.example` **y las usa
+`docker-compose.prod.yml`**.
 
 "Otro proyecto" es todo contenedor cuyo nombre no empieza con `$PROJECT_PREFIX-`; por eso el
 prefijo del contrato (`docker-compose-recipes.md` §0.1) es obligatorio. Un redeploy del mismo
@@ -1323,7 +1338,7 @@ devuelve `200` sin mirar nada, la verificación aprueba despliegues rotos.
 | :--- | :--- |
 | **La ruta se declara en `.env` como `HEALTH_PATH`** | El default del estándar es `/api/health`, no `/health`: la mayoría de los backends montan el router bajo `/api`. Un smoke test contra la ruta equivocada da 404 y tumba un despliegue sano. |
 | **Sin autenticación** | El healthcheck corre dentro del contenedor y el smoke test desde el host; ninguno de los dos tiene credenciales. |
-| **Consulta real a la base** | Un `SELECT NOW()` es la diferencia entre "el proceso arrancó" y "la aplicación funciona". Sin esto el deploy pasa con la base caída. |
+| **Consulta real a la base** | Un `SELECT NOW()` es la diferencia entre "el proceso arrancó" y "la aplicación funciona". Sin esto el deploy pasa con la base caída. **Sin base de datos** (perfiles §6): consulta lo que el servicio necesita para servir (un archivo, otra API) o, si no depende de nada, solo responde; `database` se omite del cuerpo. |
 | **Devuelve la versión desplegada** | Es lo que convierte al endpoint en la sonda de §8: responde "qué está arriba" sin entrar al servidor. |
 | **Nunca expone secretos ni cadenas de conexión** | Es un endpoint público detrás del túnel. |
 

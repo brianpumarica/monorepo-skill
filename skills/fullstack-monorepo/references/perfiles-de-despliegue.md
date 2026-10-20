@@ -209,3 +209,52 @@ Es el perfil A con Next en el lugar de Express/Nest. Todo lo del backend aplica 
 | `.github/workflows/deploy-vercel.yml` | — | ✅ | — | — |
 | `docker-compose.yml` / `.prod.yml` | ✅ | — | ✅ | ✅ |
 | `scripts/` (crear-env, chequear-host, backup, …) | ✅ | — | ✅ | ✅ |
+
+## 6. Variantes (se combinan con los perfiles A, C y D)
+
+Tres situaciones que no son un perfil nuevo sino un recorte de uno existente. Las tres salen de
+repos reales; ninguna se probó todavía con un deploy completo.
+
+### 6.1 Sin base de datos
+
+Un servicio sin Postgres (un proxy, un bot, un worker que solo llama a APIs).
+
+| Se va | Se queda |
+| :--- | :--- |
+| `postgresql-client` en el Dockerfile y el `pg_isready` del `entrypoint.sh` (queda el ancla `APP_DIR` y el `exec "$@"`) | Healthcheck nativo y smoke test (`HEALTH_PATH`) |
+| `POSTGRES_*`, `DATABASE_URL`, `DB_HOST_PORT` y el volumen de datos del compose y de `.env.example` | Tag por commit, rollback y poda acotada |
+| El paso «Backup database before migrations» del `deploy.yml` | `crear-env.sh` (secretos propios y puertos) y `chequear-host.sh` |
+| `backup.sh`, `verificar-backup.sh` y su línea del `scripts/crontab` | `rotar-secretos.sh var NOMBRE` para los secretos propios |
+
+- El endpoint de salud sigue el contrato de [CI/CD §9](./ci-cd-deployment-pipeline.md) **sin** el campo
+  `database`: responde lo que el servicio necesita para servir, o solo `OK` si no depende de nada.
+- `chequear-host.sh` dice «no tiene una línea de backup.sh» y sigue: no falla.
+- Si el servicio guarda estado en archivos o SQLite, **`backup.sh` no lo cubre** (hace `pg_dump`): el
+  volumen nombrado hay que respaldarlo aparte. Está anotado como pendiente de la skill.
+- `auditar-repos.sh` ya marca como n/a lo que depende de la base cuando el compose no menciona Postgres.
+
+### 6.2 Un solo entorno
+
+Un proyecto que solo corre en el servidor (no se desarrolla levantándolo en contenedores) lleva
+**solo `docker-compose.prod.yml`**. No se crea un `docker-compose.yml` de desarrollo vacío por cumplir
+la regla de «dev-first»: sin entorno de desarrollo no hay hot-reload, ni `-dev`, ni `puerto asignar` que
+configurar. Todo lo de producción se exige igual. `auditar-repos.sh` lo marca n/a. Si más adelante alguien
+quiere desarrollarlo en contenedores, ahí sí nace el compose de dev con nombres `-dev` (compose §0.3).
+
+### 6.3 Desplegado por el dueño de la carpeta, sin el runner
+
+El código y los volúmenes son de un usuario normal y el despliegue lo hace un script
+(`sudo -u <dueño> desplegar.sh`), no `github-runner`. Lo que cambia, porque asume el home del runner:
+
+| Pieza | Con el runner | Por el dueño |
+| :--- | :--- | :--- |
+| `.env` del servidor | `/home/github-runner/env-backups/<repo>/.env` | El que diga el script, `600` y del dueño. `crear-env.sh` lo crea con `sudo ENV_BASE=<carpeta> ENV_OWNER=<dueño> bash scripts/crear-env.sh` |
+| `chequear-host.sh` | Lee `env-backups/` de todos los repos | Con `ENV_BASE=<carpeta>` ve solo lo que esté ahí; los **contenedores** de los demás proyectos los ve igual (`docker ps`), así que un puerto ajeno en uso se detecta. Lo que no ve son las reservas de proyectos detenidos |
+| `avisar.sh` | `/home/github-runner/avisar.sh` (modo `700`) | El dueño **no puede leerlo**: copia propia (`~/avisar.sh` con su `avisar.env`) y `AVISAR=$HOME/avisar.sh` en el cron. `backup.sh` y `verificar-backup.sh` ya toman la variable |
+| Backups | `~github-runner/backups/<repo>/` | `BACKUP_DIR` (por defecto `$HOME/backups/<repo>` del dueño) |
+
+Siguen valiendo íntegras las reglas del compose de producción, el tag por commit con rollback, el
+healthcheck y el smoke test, la poda acotada por `com.proyecto` y los puertos en `127.0.0.1`. Lo que
+se pierde es la parte del `deploy.yml` que solo existe con el runner (`.env` canónico, `REQUIRED_SECRETS`):
+el script de deploy tiene que hacer su equivalente, y `analiza` lo anota como desvío aceptado, no como
+faltante.

@@ -29,6 +29,7 @@ El job sale verde. Por eso la ortografía exacta es parte del estándar, no una 
 | `BACKEND_HOST_PORT` | Puerto del **host** hacia la API | ambos compose + smoke test del workflow |
 | `FRONTEND_HOST_PORT` | Puerto del **host** hacia el front de desarrollo. **Opcional**: si el frontend de producción va a Vercel, no lleva línea en `.env.example` (ver la nota de abajo) | compose dev |
 | `DB_HOST_PORT` | Puerto del **host** hacia Postgres. **Siempre atado a `127.0.0.1`** (§4.9); en producción es opcional y único por proyecto | ambos compose |
+| `<SERVICIO>_HOST_PORT` / `<SERVICIO>_PORT` | **Un tercer servicio publicado** (un panel de administración, un worker con interfaz): su propio par, con el nombre en MAYÚSCULAS (`ADMIN_HOST_PORT` / `ADMIN_PORT`). `chequear-host.sh` lo revisa solo, y en tu máquina `puerto asignar --con ADMIN` lo escribe en el bloque | ambos compose |
 | `HEALTH_PATH` | Ruta del endpoint de salud (default del estándar: `/api/health`) | `healthcheck` del compose prod + smoke test del workflow ([CI/CD §9](./ci-cd-deployment-pipeline.md)) |
 
 > [!NOTE]
@@ -37,7 +38,8 @@ El job sale verde. Por eso la ortografía exacta es parte del estándar, no una 
 > lo respeta como reservado: con el frontend fuera del servidor quedaría un puerto apartado que
 > nadie publica. El compose de desarrollo ya trae un valor por defecto (`${FRONTEND_HOST_PORT:-8084}`),
 > así que la línea no hace falta. Si el frontend sí corre en un contenedor del servidor, la línea
-> va vacía, como las demás `*_HOST_PORT`.
+> va vacía, como las demás `*_HOST_PORT`. Desde la 1.1.0, `crear-env.sh` además **saltea** las
+> `*_HOST_PORT` vacías que `docker-compose.prod.yml` no usa: dejar la línea ya no aparta un puerto.
 
 ### Base de datos y credenciales
 
