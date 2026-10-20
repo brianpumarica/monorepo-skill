@@ -104,6 +104,7 @@ if [ "$modo" = db ] || [ "$modo" = all ]; then
     || { echo "❌ $env_file no tiene DB_CONTAINER_NAME ni PROJECT_PREFIX: no se sabe en que contenedor hacer el ALTER USER."
          echo "   Agregar una de las dos (p. ej. PROJECT_PREFIX=<prefijo-del-proyecto>) y repetir. No se toco nada."
          rm -f "$tmp"; exit 1; }
+  # shellcheck disable=SC2015  # A && B && C || { ... } a proposito: el bloque cubre el fallo de cualquiera
   [ -n "$usuario" ] && [ -n "$basedatos" ] && [ -n "$vieja" ] \
     || { echo "❌ Faltan POSTGRES_USER, POSTGRES_DB o POSTGRES_PASSWORD en $env_file"; rm -f "$tmp"; exit 1; }
   docker ps --format '{{.Names}}' | grep -qx "$contenedor" \
