@@ -54,7 +54,7 @@ es_clave_propia() { printf '%s' "$1" | grep -qE '^(API_KEY|SECRET_KEY|[A-Z0-9_]*
 generados=()
 while IFS= read -r var; do
   case "$var" in
-    *_KEY) es_clave_propia "$var" && ! es_tercero "$var" || continue ;;
+    *_KEY) if ! es_clave_propia "$var" || es_tercero "$var"; then continue; fi ;;
     *_SECRET) ! es_tercero "$var" || continue ;;
   esac
   case "$var" in JWT_SECRET) valor=$(openssl rand -hex 32) ;; *) valor=$(openssl rand -hex 16) ;; esac
@@ -62,14 +62,23 @@ while IFS= read -r var; do
   generados+=("$var")
 done < <(grep -E '^[A-Z0-9_]*(_SECRET|_PASSWORD|_KEY)=$' "$ej" | cut -d= -f1)
 
-# Puertos libres para las *_HOST_PORT vacias de la plantilla.
-asignados=()
-if grep -qE '^[A-Z]*_HOST_PORT=$' "$ej" && [ -f scripts/chequear-host.sh ]; then
-  libres=$(ENV_BASE="$base" bash scripts/chequear-host.sh alta 2>/dev/null \
-    | sed -n 's/^ *\([A-Z]*_HOST_PORT\)=\([0-9]*\).*/\1=\2/p')
+# Puertos libres para las *_HOST_PORT vacias de la plantilla. Si el repo trae docker-compose.prod.yml,
+# solo para las que ESE compose usa: una *_HOST_PORT vacia que prod no publica (el frontend que va a
+# Vercel, la base que no sale al host) no aparta un puerto que nadie va a usar. Sin compose de prod
+# en el repo, se asignan todas. Las que no son BACKEND/DB/FRONTEND se piden a chequear-host por nombre.
+asignados=(); omitidos=(); pedir=()
+if grep -qE '^[A-Z][A-Z0-9_]*_HOST_PORT=$' "$ej" && [ -f scripts/chequear-host.sh ]; then
+  while IFS= read -r var; do
+    if [ -f docker-compose.prod.yml ] && ! grep -q "\${$var" docker-compose.prod.yml; then
+      omitidos+=("$var"); continue
+    fi
+    case "$var" in BACKEND_HOST_PORT | DB_HOST_PORT | FRONTEND_HOST_PORT) ;; *) pedir+=("$var") ;; esac
+  done < <(grep -oE '^[A-Z][A-Z0-9_]*_HOST_PORT=$' "$ej" | tr -d '=')
+  libres=$(ENV_BASE="$base" bash scripts/chequear-host.sh alta ${pedir[@]+"${pedir[@]}"} 2>/dev/null \
+    | sed -n 's/^ *\([A-Z][A-Z0-9_]*_HOST_PORT\)=\([0-9]*\).*/\1=\2/p')
   for par in $libres; do
     var=${par%%=*}; valor=${par#*=}
-    if grep -qE "^${var}=\$" "$ej"; then
+    if grep -qE "^${var}=\$" "$ej" && ! printf '%s\n' "${omitidos[@]:-}" | grep -qx "$var"; then
       sed -i "s|^${var}=\$|${var}=${valor}|" "$tmp"
       asignados+=("$var=$valor")
     fi
@@ -82,10 +91,11 @@ install "${own[@]}" -m 600 "$tmp" "$dest"
 echo "✅ Creado $dest (600)."
 [ ${#generados[@]} -gt 0 ] && echo "   Generados al azar: ${generados[*]}"
 [ ${#asignados[@]} -gt 0 ] && echo "   Puertos libres asignados: ${asignados[*]}"
+[ ${#omitidos[@]} -eq 0 ] || echo "   Sin puerto (docker-compose.prod.yml no las usa): ${omitidos[*]}"
 for var in "${generados[@]}"; do
   case "$var" in ADMIN_*) echo "   $var = $(grep -m1 "^${var}=" "$dest" | cut -d= -f2-)   <- guardarla ahora, es la de acceso" ;; esac
 done
 # `|| true`: si no queda nada por completar, grep sale con 1 y con `set -e` el script moria aca,
 # despues de crear el .env, con un codigo de error que el log del deploy mostraba como falla.
-pendientes=$(grep -E '^[A-Z0-9_]+=$' "$dest" | cut -d= -f1 | tr '\n' ' ' || true)
+pendientes=$(grep -E '^[A-Z0-9_]+=$' "$dest" | cut -d= -f1 | grep -vxF -f <(printf '%s\n' "${omitidos[@]:-}") | tr '\n' ' ' || true)
 [ -z "$pendientes" ] || echo "   Completar a mano (sudo nano $dest): $pendientes"

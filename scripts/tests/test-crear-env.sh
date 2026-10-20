@@ -61,6 +61,26 @@ contiene "con la linea vacia en la plantilla, se le asigna un puerto" "$(valor F
 crea 'JWT_SECRET=\nBACKEND_HOST_PORT=\nDB_HOST_PORT=\n'
 no_contiene "frontend en Vercel: sin la linea en la plantilla, no aparece en el .env" "$(cat "$ENVB/repo/.env")" 'FRONTEND_HOST_PORT'
 
+titulo "docker-compose.prod.yml manda: solo se asigna lo que prod publica"
+cat > "$R/docker-compose.prod.yml" <<'YML'
+services:
+  backend:
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-3004}:3004"
+  panel:
+    ports:
+      - "127.0.0.1:${ADMIN_HOST_PORT:-8090}:8090"
+YML
+crea 'JWT_SECRET=\nBACKEND_HOST_PORT=\nFRONTEND_HOST_PORT=\nDB_HOST_PORT=\nADMIN_HOST_PORT=\n'
+contiene "BACKEND_HOST_PORT (la usa prod) recibe un puerto" "$(valor BACKEND_HOST_PORT)" '^[0-9]{4,5}$'
+contiene "ADMIN_HOST_PORT (un tercer servicio que prod publica) tambien" "$(valor ADMIN_HOST_PORT)" '^[0-9]{4,5}$'
+igual "FRONTEND_HOST_PORT (prod no la usa: va a Vercel) queda vacia" "" "$(valor FRONTEND_HOST_PORT)"
+igual "DB_HOST_PORT (prod no la publica) queda vacia" "" "$(valor DB_HOST_PORT)"
+contiene "lo dice" "$OUT" 'Sin puerto \(docker-compose.prod.yml no las usa\): FRONTEND_HOST_PORT DB_HOST_PORT'
+no_contiene "y no las pide en 'Completar a mano'" "$OUT" 'Completar a mano'
+igual "los puertos asignados son distintos entre si" 2 "$(printf '%s\n%s\n' "$(valor BACKEND_HOST_PORT)" "$(valor ADMIN_HOST_PORT)" | sort -u | wc -l | tr -d ' ')"
+rm -f "$R/docker-compose.prod.yml"
+
 titulo "no pisa un .env existente"
 mkdir -p "$ENVB/repo"; echo 'JWT_SECRET=original' > "$ENVB/repo/.env"
 OUT=$(cd "$R" && env PATH="$STUBS:$PATH" ENV_BASE="$ENVB" ENV_OWNER= bash scripts/crear-env.sh repo 2>&1); ST=$?

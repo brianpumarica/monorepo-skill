@@ -72,6 +72,27 @@ contiene "  lo dice" "$OUT" 'Sin puerto libre en 4000-4001'
 nuevo_estado; rm "$R/.env"; chequea -- alta
 igual "alta no necesita .env (se corre ANTES de crearlo): sale con 0" 0 "$ST"
 
+titulo "un tercer servicio: cualquier *_HOST_PORT del .env"
+nuevo_estado; printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=4100\nADMIN_HOST_PORT=4300\n' > "$R/.env"
+printf 'BACKEND_HOST_PORT=4001\nADMIN_HOST_PORT=4301\n' > "$ENVB/otro/.env"
+chequea -- puertos
+igual "un puerto extra libre: sale con 0" 0 "$ST"
+contiene "  lo revisa" "$OUT" 'ADMIN_HOST_PORT=4300 libre'
+nuevo_estado; printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=4100\nADMIN_HOST_PORT=4301\n' > "$R/.env"; printf 'ADMIN_HOST_PORT=4301\n' > "$ENVB/otro/.env"
+chequea -- puertos
+igual "un puerto extra reservado por otro proyecto: sale con 1" 1 "$ST"
+contiene "  nombra la variable extra" "$OUT" 'ADMIN_HOST_PORT=4301 esta reservado en el .env de: otro'
+nuevo_estado; printf 'PROJECT_PREFIX=app\nBACKEND_HOST_PORT=4100\nADMIN_HOST_PORT=4301\n' > "$R/.env"; printf 'ADMIN_HOST_PORT=4301\n' > "$ENVB/otro/.env"
+chequea PORT_VARS="BACKEND_HOST_PORT" -- puertos
+igual "con PORT_VARS fijado a mano no se suman las del .env: sale con 0" 0 "$ST"
+nuevo_estado; chequea RANGO_BACKEND="4000-4009" RANGO_FRONTEND="5000-5009" RANGO_DB="6000-6009" -- alta ADMIN_HOST_PORT WORKER_HOST_PORT
+igual "alta con nombres extra: sale con 0" 0 "$ST"
+contiene "  ADMIN en el rango del frontend, distinto del frontend" "$OUT" 'ADMIN_HOST_PORT=5001'
+contiene "  WORKER, otro mas" "$OUT" 'WORKER_HOST_PORT=5002'
+chequea -- alta minusculas
+igual "alta con un nombre invalido: sale con 1" 1 "$ST"
+contiene "  lo dice" "$OUT" 'no es un nombre de variable valido'
+
 titulo "horario del backup"
 nuevo_estado; chequea -- horario
 contiene "sin scripts/crontab no se chequea" "$OUT" 'no tiene una linea de backup.sh con hora fija'

@@ -6,6 +6,7 @@
 # lleva nombres de proyectos a un repo publico.
 #
 #   chequear-host.sh alta       # ELEGIR: puertos y horario de backup libres para un proyecto nuevo
+#   chequear-host.sh alta ADMIN_HOST_PORT   # ...y un puerto mas por cada servicio extra que publique el proyecto
 #   chequear-host.sh            # = puertos + horario; lo usa el deploy ANTES de tocar nada
 #   chequear-host.sh puertos    # falla (exit 1) si un puerto del .env ya es de OTRO proyecto
 #   chequear-host.sh horario    # avisa si el backup de este repo pisa el de otro
@@ -21,12 +22,16 @@
 #   3. lo esta escuchando un proceso que no es un contenedor de este proyecto.
 # Un redeploy del mismo proyecto vuelve a tomar su mismo puerto y no cuenta como conflicto.
 #
+# Los puertos que revisa son BACKEND/DB/FRONTEND_HOST_PORT y ademas CUALQUIER otra *_HOST_PORT que
+# tenga el .env (un tercer servicio publicado: un panel, un worker); PORT_VARS=... las fija a mano.
+#
 # Solo lectura: no para, no crea, no borra nada. Variables: ENV_BASE, PORT_VARS, y los rangos
 # RANGO_BACKEND / RANGO_FRONTEND / RANGO_DB ("desde-hasta") que usa "alta".
 set -uo pipefail
 
 modo=${1:-todo}
 ENV_BASE=${ENV_BASE:-/home/github-runner/env-backups}
+PORT_VARS_FIJAS=${PORT_VARS+x}   # "x" si el llamador fijo PORT_VARS: entonces no se suman las del .env
 PORT_VARS=${PORT_VARS:-"BACKEND_HOST_PORT DB_HOST_PORT FRONTEND_HOST_PORT"}
 RANGO_BACKEND=${RANGO_BACKEND:-3000-3999}
 RANGO_FRONTEND=${RANGO_FRONTEND:-8000-8999}
@@ -75,8 +80,12 @@ reservado_por() {
 }
 
 puertos() {
-  local mal=0 var p duenos ajeno res
-  for var in $PORT_VARS; do
+  local mal=0 var p duenos ajeno res lista=$PORT_VARS
+  if [ -z "$PORT_VARS_FIJAS" ]; then
+    # Las *_HOST_PORT extra del .env (sin repetir las de siempre).
+    lista="$lista $(grep -oE '^[A-Z][A-Z0-9_]*_HOST_PORT' .env 2>/dev/null | sort -u | grep -vxE 'BACKEND_HOST_PORT|DB_HOST_PORT|FRONTEND_HOST_PORT' | tr '\n' ' ')"
+  fi
+  for var in $lista; do
     p=${!var:-}
     [ -n "$p" ] || continue
     duenos=$(publicado_por "$p")
@@ -153,7 +162,7 @@ libre() {
 }
 
 alta() {
-  local b f d
+  local b f d extra x p elegidos
   b=$(puerto_libre "$RANGO_BACKEND") || { echo "❌ Sin puerto libre en $RANGO_BACKEND"; return 1; }
   f=$(puerto_libre "$RANGO_FRONTEND" "$b") || { echo "❌ Sin puerto libre en $RANGO_FRONTEND"; return 1; }
   d=$(puerto_libre "$RANGO_DB" "$b" "$f") || { echo "❌ Sin puerto libre en $RANGO_DB"; return 1; }
@@ -161,15 +170,24 @@ alta() {
   echo "  BACKEND_HOST_PORT=$b"
   echo "  FRONTEND_HOST_PORT=$f   # solo si el frontend va en contenedor; con Vercel no se publica"
   echo "  DB_HOST_PORT=$d"
+  # Un puerto mas por cada servicio extra que se pidio por nombre (rango del frontend).
+  elegidos=("$b" "$f" "$d")
+  for extra in "$@"; do
+    printf '%s' "$extra" | grep -qE '^[A-Z][A-Z0-9_]*_HOST_PORT$' \
+      || { echo "❌ '$extra' no es un nombre de variable valido (ej. ADMIN_HOST_PORT)"; return 1; }
+    p=$(puerto_libre "$RANGO_FRONTEND" "${elegidos[@]}") || { echo "❌ Sin puerto libre en $RANGO_FRONTEND"; return 1; }
+    elegidos+=("$p"); x=$extra
+    echo "  $x=$p"
+  done
   libre
   echo "Es una foto de este momento: no reserva nada hasta que exista el .env. Si pasan dias, repetir 'alta'."
 }
 
 case "$modo" in
-  alta)    alta ;;
+  alta)    shift; alta "$@" ;;
   puertos) puertos ;;
   horario) horario ;;
   libre)   libre ;;
   todo)    rc=0; puertos || rc=1; horario; exit $rc ;;
-  *) echo "Uso: chequear-host.sh [alta|puertos|horario|libre]"; exit 1 ;;
+  *) echo "Uso: chequear-host.sh [alta [VAR_HOST_PORT...]|puertos|horario|libre]"; exit 1 ;;
 esac
