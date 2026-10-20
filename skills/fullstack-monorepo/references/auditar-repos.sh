@@ -100,7 +100,9 @@ fi
 
 # --- Fase 2: compose --------------------------------------------------------------
 if [ "$HAYDOCKER" -eq 1 ]; then
-  chk "2 docker-compose.yml (dev)"          "[ -f $DEV ]"
+  # Un proyecto con un solo entorno (solo corre en el servidor) puede tener solo el compose de prod.
+  if [ ! -f "$DEV" ] && [ -f "$PROD" ]; then SOLOPROD=1; na "2 docker-compose.yml (dev) (un solo entorno: solo hay compose de prod)"
+  else SOLOPROD=0; chk "2 docker-compose.yml (dev)" "[ -f $DEV ]"; fi
   chk "2 sin docker-compose.dev.yml"        "[ ! -f docker-compose.dev.yml ]"
   chk "2 prod: restart unless-stopped"      "grep -q 'unless-stopped' $PROD"
   chk "2 prod: healthcheck"                 "grep -q 'healthcheck' $PROD"
@@ -114,8 +116,17 @@ if [ "$HAYDOCKER" -eq 1 ]; then
   miss=$(sincom $DEV $PROD | grep -oE '\$\{[A-Z_][A-Z0-9_]*' | cut -c3- | sort -u | grep -vx IMAGE_TAG \
     | while read -r v; do grep -q "^$v=" .env.example 2>/dev/null || echo "$v"; done | tr '\n' ' ')
   if [ -z "$miss" ]; then ok "2 vars del compose en .env.example"; else mal "2 vars del compose en .env.example" "($miss)"; fi
-  raras=$(cat $DEV $PROD .env.example 2>/dev/null | grep -oE '\b[A-Z_]*_PORT\b' | sort -u \
-    | grep -vE '^(BACKEND_HOST_PORT|DB_HOST_PORT|FRONTEND_HOST_PORT|PORT|DB_PORT|POSTGRES_PORT_INTERNAL)$' | tr '\n' ' ')
+  # Contrato de puertos: los fijos, y cualquier servicio extra con SU par <X>_HOST_PORT + <X>_PORT.
+  todos=$(cat $DEV $PROD .env.example 2>/dev/null | grep -oE '\b[A-Z][A-Z0-9_]*_PORT\b' | sort -u)
+  raras=""
+  for v in $todos; do
+    case "$v" in
+      BACKEND_HOST_PORT | DB_HOST_PORT | FRONTEND_HOST_PORT | PORT | DB_PORT | POSTGRES_PORT_INTERNAL | FRONTEND_PORT) continue ;;
+      *_HOST_PORT) continue ;;
+      *_PORT) printf '%s\n' "$todos" | grep -qx "${v%_PORT}_HOST_PORT" && continue ;;
+    esac
+    raras="$raras$v "
+  done
   if [ -z "$raras" ]; then ok "2 nombres de puertos del contrato"; else mal "2 nombres de puertos del contrato" "($raras)"; fi
   # IMAGE_TAG la define el deploy (SHA). Definida en .env.example, crear-env la copia al .env del
   # servidor y el `. ./.env` del paso de promocion pisa el SHA con ese valor: last-good-tag vacio.
@@ -131,10 +142,10 @@ if [ "$HAYDOCKER" -eq 1 ]; then
   fi
   # Recarga en dev: CHOKIDAR_USEPOLLING (tsx/vite), legacyWatch de nodemon, WATCHPACK_POLLING (Next),
   # `uvicorn --reload` (watchfiles ve los cambios del bind mount de Docker Desktop sin polling: probado).
-  if [ -n "$BACK" ]; then
+  if [ -n "$BACK" ] && [ "$SOLOPROD" -eq 0 ]; then
     chk "2 dev: recarga del backend"        "grep -q 'CHOKIDAR_USEPOLLING' $DEV || grep -q '\"legacyWatch\": *true' $BACK/nodemon.json 2>/dev/null || grep -q -- '--reload' $BACK/Dockerfile $DEV"
   fi
-  if [ -n "$FRONT" ] && ls $FRONT/next.config.* >/dev/null 2>&1 && grep -q 'context: \./*'"$FRONT" $DEV; then
+  if [ -n "$FRONT" ] && ls $FRONT/next.config.* >/dev/null 2>&1 && grep -q 'context: \./*'"$FRONT" $DEV 2>/dev/null; then
     chk "2 dev: WATCHPACK_POLLING (Next)"   "grep -q 'WATCHPACK_POLLING' $DEV"
   fi
 else

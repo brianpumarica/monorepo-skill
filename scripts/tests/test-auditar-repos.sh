@@ -222,7 +222,20 @@ cambio "AGENTS.md sin la version de la skill" '0 AGENTS\.md anota la version de 
 cambio "copia de la skill sin numero de version" '0 la copia de la skill tiene numero de version' 'echo "---" > .agents/skills/fullstack-monorepo/SKILL.md'
 cambio "next.config con ignoreBuildErrors" '5 next\.config: sin ignoreBuildErrors' 'mkdir frontend; echo "export default { typescript: { ignoreBuildErrors: true } }" > frontend/next.config.mjs'
 cambio "layout con la marca de v0" '5 sin restos de v0' 'mkdir -p frontend/app; echo "export const metadata = { generator: '"'"'v0.app'"'"' }" > frontend/app/layout.tsx; echo "export default {}" > frontend/next.config.mjs'
+cambio "variable de puerto de un servicio extra sin su par" '2 nombres de puertos del contrato' 'echo "PANEL_PORT=8090" >> .env.example'
 cambio "sin la rama develop" '5 rama develop' 'git push -q origin :develop'
+
+titulo "servicio extra con su par HOST_PORT / PORT y un solo entorno"
+rm -rf "$T/c"; cp -a "$A" "$T/c"; cp -a "$A.remote" "$T/c.remote"
+( cd "$T/c" && git remote set-url origin "$T/c.remote" && printf 'ADMIN_HOST_PORT=\nADMIN_PORT=\n' >> .env.example \
+  && printf '  panel:\n    ports:\n      - "127.0.0.1:${ADMIN_HOST_PORT:-8090}:${ADMIN_PORT:-8090}"\n' > /dev/null )
+audita "$T/c"
+igual "un par ADMIN_HOST_PORT + ADMIN_PORT en .env.example: sale con 0" 0 "$ST"
+cumple "  cuenta como contrato de puertos" '2 nombres de puertos del contrato'
+rm -f "$T/c/docker-compose.yml"
+audita "$T/c"
+contiene "sin compose de dev (un solo entorno): lo marca n/a" "$OUT" '➖ 2 docker-compose.yml \(dev\) \(un solo entorno'
+no_contiene "  y no le exige la recarga del backend" "$OUT" '❌ 2 dev: recarga'
 
 titulo "perfil B: solo frontend en Vercel"
 audita "$B"
