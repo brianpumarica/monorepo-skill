@@ -72,6 +72,39 @@ igual "no llamo a docker exec" "" "$(cat "$DLOG")"
 igual "la clave de la base sigue igual" vieja123 "$(valor proj POSTGRES_PASSWORD)"
 no_contiene "JWT_SECRET cambio" "$(cat "$ENVB/proj/.env")" 'jwtviejo'
 
+titulo "proyecto sin JWT_SECRET"
+rm -rf "$ENVB"; mkdir -p "$ENVB/sinjwt"
+printf 'POSTGRES_USER=u\nPOSTGRES_DB=d\nPOSTGRES_PASSWORD=vieja123\nPROJECT_PREFIX=pf\nAPI_KEY=apivieja\nGOOGLE_CLIENT_SECRET=deunproveedor\n' > "$ENVB/sinjwt/.env"
+corre -- jwt sinjwt
+igual "jwt: sale con 1" 1 "$ST"
+contiene "  dice que no hay JWT_SECRET" "$OUT" 'no tiene JWT_SECRET'
+contiene "  y sugiere var" "$OUT" 'rotar-secretos.sh var NOMBRE'
+igual "  no toco nada (ni .bak ni temporal)" 0 "$(find "$ENVB/sinjwt" -type f ! -name .env | wc -l | tr -d ' ')"
+corre -- all sinjwt
+igual "all: rota solo la base y sale con 0" 0 "$ST"
+contiene "  lo avisa" "$OUT" 'Sin JWT_SECRET en el .env'
+contiene "  reporta solo POSTGRES_PASSWORD" "$OUT" 'Rotado: POSTGRES_PASSWORD'
+no_contiene "  no inventa un JWT_SECRET" "$(cat "$ENVB/sinjwt/.env")" 'JWT_SECRET=[0-9a-f]'
+
+titulo "var: otro secreto propio"
+corre -- var API_KEY sinjwt
+igual "sale con 0" 0 "$ST"
+contiene "reporta API_KEY" "$OUT" 'Rotado: API_KEY'
+igual "API_KEY nueva = 64 hex" 64 "$(valor sinjwt API_KEY | tr -d '\n' | wc -c | tr -d ' ')"
+igual "no llamo a docker exec" "" "$(cat "$DLOG")"
+igual "GOOGLE_CLIENT_SECRET (de un tercero) no se toco" deunproveedor "$(valor sinjwt GOOGLE_CLIENT_SECRET)"
+no_contiene "el resumen no imprime el secreto" "$OUT" "$(valor sinjwt API_KEY)"
+corre -- var NO_EXISTE_KEY sinjwt
+igual "una variable que no esta: sale con 1" 1 "$ST"
+contiene "  lo dice" "$OUT" 'NO_EXISTE_KEY no esta en'
+corre -- var POSTGRES_PASSWORD sinjwt
+igual "var POSTGRES_PASSWORD: sale con 1" 1 "$ST"
+contiene "  manda a usar db" "$OUT" "se rota con 'db'"
+corre -- var PORT sinjwt
+igual "var con un nombre que no es secreto: sale con 1" 1 "$ST"
+corre -- var
+igual "var sin nombre: sale con 1" 1 "$ST"
+
 titulo "fallas: el .env no se toca"
 rm -rf "$ENVB"; mk pf 'PROJECT_PREFIX=pf\n'
 corre DOCKER_FALLA=1 -- db pf

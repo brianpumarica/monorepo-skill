@@ -3,7 +3,13 @@
 # scripts/rotar-secretos.sh. Uso (desde la carpeta del repo):
 #   sudo bash scripts/rotar-secretos.sh jwt    # solo JWT_SECRET
 #   sudo bash scripts/rotar-secretos.sh db     # solo la clave de la base
-#   sudo bash scripts/rotar-secretos.sh all    # las dos
+#   sudo bash scripts/rotar-secretos.sh all    # las dos (si el proyecto no tiene JWT_SECRET, solo la base)
+#   sudo bash scripts/rotar-secretos.sh var NOMBRE   # otro secreto PROPIO (API_KEY, SESSION_SECRET...)
+#
+# No todo proyecto usa JWT: sin JWT_SECRET en el .env, `jwt` avisa y no toca nada, y `var` rota el
+# secreto que el proyecto si tenga. `var` solo acepta *_SECRET, *_KEY y *_PASSWORD que ya esten en el
+# .env, y NO la clave de la base (esa lleva `db`, que hace tambien el ALTER USER). Una credencial de
+# un tercero (la API de un proveedor) se rota en el proveedor, no inventando otra aca.
 #
 # La base se busca en el contenedor DB_CONTAINER_NAME del .env o, si no esta, <PROJECT_PREFIX>-database.
 #
@@ -26,13 +32,21 @@
 set -euo pipefail
 
 modo=${1:-}
-case "$modo" in jwt | db | all) ;; *) echo "Uso: sudo bash scripts/rotar-secretos.sh {jwt|db|all} [repo]"; exit 1 ;; esac
+variable=""
+case "$modo" in
+  jwt | db | all) repo_arg=${2:-} ;;
+  var) variable=${2:-}; repo_arg=${3:-}
+       printf '%s' "$variable" | grep -qE '^[A-Z][A-Z0-9_]*_(SECRET|KEY|PASSWORD)$' \
+         || { echo "❌ var necesita el NOMBRE de un secreto propio (*_SECRET, *_KEY o *_PASSWORD): '$variable'"; exit 1; }
+       [ "$variable" != POSTGRES_PASSWORD ] || { echo "❌ La clave de la base se rota con 'db' (tambien hace el ALTER USER)."; exit 1; } ;;
+  *) echo "Uso: sudo bash scripts/rotar-secretos.sh {jwt|db|all} [repo]   |   var NOMBRE [repo]"; exit 1 ;;
+esac
 
 # El script vive en <repo>/scripts/: trabajar siempre desde la raiz del repo, se llame desde donde se
 # llame (el log del deploy imprime la ruta completa para pegarla desde cualquier carpeta).
 raiz=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || true
 if [ -n "${raiz:-}" ] && [ -f "$raiz/.env.example" ]; then cd "$raiz"; fi
-repo=${2:-$(basename "$PWD")}
+repo=${repo_arg:-$(basename "$PWD")}
 base=${ENV_BASE:-/home/github-runner/env-backups}
 owner=${ENV_OWNER-github-runner}   # vacio = no cambiar dueño (para probar sin root)
 env_file="$base/$repo/.env"
@@ -59,8 +73,24 @@ cp "$env_file" "$tmp"
 rotados=()
 
 if [ "$modo" = jwt ] || [ "$modo" = all ]; then
-  poner "$tmp" JWT_SECRET "$(openssl rand -hex 32)"
-  rotados+=(JWT_SECRET)
+  if grep -q "^JWT_SECRET=" "$tmp"; then
+    poner "$tmp" JWT_SECRET "$(openssl rand -hex 32)"
+    rotados+=(JWT_SECRET)
+  elif [ "$modo" = jwt ]; then
+    echo "❌ $env_file no tiene JWT_SECRET: este proyecto no firma tokens con esa variable. No se toco nada."
+    echo "   Para otro secreto propio:  sudo bash scripts/rotar-secretos.sh var NOMBRE"
+    rm -f "$tmp"; exit 1
+  else
+    echo "ℹ️  Sin JWT_SECRET en el .env: se rota solo la base."
+  fi
+fi
+
+if [ "$modo" = var ]; then
+  if ! grep -q "^${variable}=" "$tmp"; then
+    echo "❌ $variable no esta en $env_file. No se toco nada."; rm -f "$tmp"; exit 1
+  fi
+  poner "$tmp" "$variable" "$(openssl rand -hex 32)"
+  rotados+=("$variable")
 fi
 
 if [ "$modo" = db ] || [ "$modo" = all ]; then
