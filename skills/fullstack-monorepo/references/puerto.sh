@@ -3,7 +3,7 @@
 # NO va dentro de un repo: se instala UNA vez en el PATH (por ejemplo ~/bin/puerto) y sirve para
 # todos tus proyectos, con Docker o sin Docker.
 #
-#   puerto asignar [nombre]   # le da al proyecto un bloque de puertos propio y lo escribe en .env
+#   puerto asignar [nombre] [--con ADMIN,WORKER]   # le da al proyecto un bloque de puertos propio y lo escribe en .env
 #   puerto listar             # tus proyectos, sus puertos y cuales estan corriendo AHORA
 #   puerto quien <puerto>     # que proyecto (o proceso) usa un puerto
 #   puerto liberar [nombre]   # devuelve el bloque del proyecto
@@ -14,7 +14,9 @@
 # mismo .env y el mismo puerto: no hay que pedirselo a nadie ni acordarse.
 #
 #   bloque+0  FRONTEND_HOST_PORT / FRONTEND_PORT      bloque+2  DB_HOST_PORT
-#   bloque+1  BACKEND_HOST_PORT  / PORT               bloque+3..9  libres para lo que haga falta
+#   bloque+1  BACKEND_HOST_PORT  / PORT               bloque+3..9  servicios extra: --con ADMIN,WORKER
+#                                                     escribe ADMIN_HOST_PORT / ADMIN_PORT (+3) y
+#                                                     WORKER_HOST_PORT / WORKER_PORT (+4)
 #
 # El registro vive en ~/.puertos (nombre<TAB>bloque), fuera de cualquier repo: ahi estan los
 # nombres de tus proyectos y no tienen que ir a un repositorio publico.
@@ -27,10 +29,26 @@ FIN=${PUERTOS_FIN:-4999}
 ANCHO=10
 touch "$REGISTRO"
 
-# ¿Hay algo escuchando en el puerto? ss si existe (Linux); si no, un intento de conexion en bash puro
-# (Git Bash y macOS no traen ss). El mismo criterio que chequear-host.sh.
+# ¿Hay algo escuchando en el puerto? Tres maneras, de la mas a la menos rapida:
+#  - ss (Linux);
+#  - Git Bash en Windows (sin ss): UNA sola llamada a `netstat -ano` al arrancar, y cada puerto se
+#    busca en esa salida. Abrir una conexion a un puerto cerrado de 127.0.0.1 tarda ~2 s en Windows:
+#    `asignar` prueba los 10 puertos de un bloque (~20 s) y `listar` 3 por proyecto;
+#  - macOS u otro sin ss ni netstat util: un intento de conexion en bash puro (el criterio de
+#    chequear-host.sh).
+# PUERTO_FORZAR_NETSTAT=1 toma la via de netstat aunque haya ss (para probarla en cualquier sistema).
+NETSTAT_CACHE=""; USAR_NETSTAT=0
+if [ -n "${PUERTO_FORZAR_NETSTAT:-}" ] \
+   || { ! command -v ss >/dev/null 2>&1 && case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) true ;; *) false ;; esac; }; then
+  if command -v netstat >/dev/null 2>&1; then USAR_NETSTAT=1; NETSTAT_CACHE=$(netstat -ano 2>/dev/null | tr -d '\r'); fi
+fi
+
 escuchando() {
-  if command -v ss >/dev/null 2>&1; then [ -n "$(ss -ltnH "sport = :$1" 2>/dev/null)" ]
+  if [ "$USAR_NETSTAT" -eq 1 ]; then
+    # Un socket que escucha tiene como direccion remota *:0 (0.0.0.0:0 o [::]:0); una conexion
+    # establecida, no. El estado ("LISTENING") se traduce segun el idioma de Windows: no se usa.
+    printf '%s\n' "$NETSTAT_CACHE" | grep -qE "^[[:space:]]*TCP[[:space:]]+[^[:space:]]+:$1[[:space:]]+[^[:space:]]+:0[[:space:]]"
+  elif command -v ss >/dev/null 2>&1; then [ -n "$(ss -ltnH "sport = :$1" 2>/dev/null)" ]
   else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
 }
 
@@ -46,6 +64,7 @@ bloque_ocupado() {
 
 nombre_proyecto() { echo "${1:-$(basename "$PWD")}"; }
 
+EXTRAS=""
 asignar() {
   local nombre; nombre=$(nombre_proyecto "${1:-}")
   local b; b=$(bloque_de "$nombre")
@@ -80,6 +99,13 @@ escribir_env() {
   poner BACKEND_HOST_PORT $((b + 1))
   poner PORT $((b + 1))
   poner DB_HOST_PORT $((b + 2))
+  local n=3 s
+  for s in $(printf '%s' "$EXTRAS" | tr ',' ' '); do
+    poner "${s}_HOST_PORT" $((b + n))
+    poner "${s}_PORT" $((b + n))
+    echo "   $s -> $((b + n))"
+    n=$((n + 1))
+  done
   echo "   .env  ->  frontend $b | backend $((b + 1)) | base $((b + 2))"
   echo "   http://localhost:$b (frontend)   http://localhost:$((b + 1)) (backend)"
   if [ -f .gitignore ] && ! grep -qE '^\.env$' .gitignore; then
@@ -121,7 +147,21 @@ liberar() {
 }
 
 case "${1:-}" in
-  asignar) asignar "${2:-}" ;;
+  asignar)
+    shift; nombre_arg=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --con) shift; EXTRAS=${1:-} ;;
+        *) nombre_arg=$1 ;;
+      esac
+      shift
+    done
+    # Los servicios extra: nombres en MAYUSCULAS, hasta 7 (bloque+3 a bloque+9).
+    if [ -n "$EXTRAS" ]; then
+      printf '%s' "$EXTRAS" | grep -qE '^[A-Z][A-Z0-9_]*(,[A-Z][A-Z0-9_]*){0,6}$' \
+        || { echo "❌ --con espera nombres en MAYUSCULAS separados por coma (hasta 7): ADMIN,WORKER"; exit 1; }
+    fi
+    asignar "$nombre_arg" ;;
   listar) listar ;;
   quien) quien "${2:-}" ;;
   liberar) liberar "${2:-}" ;;

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# netstat falso: imprime el archivo NETSTAT_SALIDA (con CRLF, como el de Windows), o nada.
+[ -n "${NETSTAT_SALIDA:-}" ] && sed 's/$/\r/' "$NETSTAT_SALIDA"
+exit 0

@@ -95,6 +95,49 @@ puerto -- liberar nadie
 igual "uno que no esta registrado: sale con 0" 0 "$ST"
 contiene "  y lo dice" "$OUT" "'nadie' no esta registrado"
 
+titulo "Windows sin ss: una sola llamada a netstat en vez de probar cada puerto"
+P="$T/demo"; nuevo
+# Salida con CRLF y estado traducido (ESCUCHANDO): lo que cuenta es que la direccion remota sea *:0.
+cat > "$T/ns.txt" <<'NS'
+Conexiones activas
+
+  Proto  Direccion local          Direccion remota        Estado           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              ESCUCHANDO      1364
+  TCP    127.0.0.1:4001         0.0.0.0:0              ESCUCHANDO      900
+  TCP    [::]:4012              [::]:0                 ESCUCHANDO      901
+  TCP    127.0.0.1:4023         127.0.0.1:50000        ESTABLECIDO     902
+  UDP    0.0.0.0:4034           *:*                                    903
+NS
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- quien 4001
+contiene "un puerto IPv4 que escucha: lo ve" "$OUT" 'esta en uso por algo que no es un proyecto registrado'
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- quien 4012
+contiene "uno IPv6 ([::]:N): tambien" "$OUT" 'esta en uso por algo'
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- quien 4023
+contiene "una conexion ESTABLECIDA no es un servidor escuchando" "$OUT" 'esta libre'
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- quien 4034
+contiene "un puerto UDP no cuenta" "$OUT" 'esta libre'
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" PUERTOS_FIN=4029 -- asignar
+igual "asignar saltea los bloques con un puerto que escucha (4001 y 4012) y toma el 4020" 4020 "$(bloque demo)"
+nuevo; printf 'ajeno\t4010\n' > "$REG"
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- listar
+contiene "listar marca lo que corre segun netstat" "$OUT" "^ajeno +4010   libre +4011   libre +4012 ● corriendo"
+puerto PUERTO_FORZAR_NETSTAT=1 NETSTAT_SALIDA="$T/ns.txt" -- quien 4012
+contiene "y 4012 (IPv6) es parte del bloque 4010 de 'ajeno'" "$OUT" "es del proyecto 'ajeno' \(bloque 4010, \+2\)  ● corriendo"
+
+titulo "asignar --con: servicios extra en bloque+3..."
+P="$T/demo"; nuevo
+puerto -- asignar --con ADMIN,WORKER
+igual "sale con 0" 0 "$ST"
+B=$(bloque demo)
+igual "ADMIN en bloque+3 (host y puerto interno)" "$((B + 3)) $((B + 3))" "$(valor ADMIN_HOST_PORT) $(valor ADMIN_PORT)"
+igual "WORKER en bloque+4" "$((B + 4)) $((B + 4))" "$(valor WORKER_HOST_PORT) $(valor WORKER_PORT)"
+igual "lo de siempre sigue en su lugar (backend en bloque+1)" "$((B + 1))" "$(valor BACKEND_HOST_PORT)"
+puerto -- asignar otro --con API2
+igual "con nombre y --con juntos" "$(($(bloque otro) + 3))" "$(valor API2_HOST_PORT)"
+puerto -- asignar --con minuscula
+igual "un nombre en minusculas: sale con 1" 1 "$ST"
+contiene "  lo explica" "$OUT" 'MAYUSCULAS'
+
 titulo "sin comando"
 puerto --
 igual "sale con 1" 1 "$ST"
