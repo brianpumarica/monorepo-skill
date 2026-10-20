@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # los fixtures son texto con $ literal, no expansiones
 # Prueba del paso "Install project cron" de ci-cd-deployment-pipeline.md §2: se EXTRAE del markdown y
 # se corre con un crontab falso. Que el cron de un repo se instale una vez, sin sumar los comentarios
 # de la plantilla en cada deploy ni tocar las lineas de otros proyectos.

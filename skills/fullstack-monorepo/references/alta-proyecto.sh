@@ -68,7 +68,9 @@ VERCEL_CMD=${VERCEL_CMD:-npx --yes vercel@latest}
 if [ "$VERIFICAR" -eq 1 ]; then
   echo "Configuracion: $CONFIG"
   if [ -f "$CONFIG" ]; then echo "   ✅ el archivo existe"; else echo "   ❌ no existe (ver la cabecera del script para crearlo)"; fi
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   [ -n "${ORG_RUNNER:-}" ] && echo "   ✅ ORG_RUNNER = $ORG_RUNNER" || echo "   ❌ falta ORG_RUNNER"
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   [ -n "${DOMINIO:-}" ] && echo "   ✅ DOMINIO = $DOMINIO" || echo "   ❌ falta DOMINIO"
   if [ -z "${VERCEL_TOKEN:-}" ]; then
     echo "   ❌ falta VERCEL_TOKEN"
@@ -81,6 +83,7 @@ if [ "$VERIFICAR" -eq 1 ]; then
       *) echo "   ⚠️  No se pudo comprobar con Vercel (HTTP ${code:-sin respuesta})" ;;
     esac
   fi
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   command -v gh >/dev/null && gh auth status >/dev/null 2>&1 && echo "   ✅ gh con sesion" || echo "   ❌ gh sin sesion"
   exit 0
 fi

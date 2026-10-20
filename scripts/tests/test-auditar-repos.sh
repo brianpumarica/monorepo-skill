@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # los fixtures son texto con $ literal, no expansiones
 # Pruebas de references/auditar-repos.sh: un repo de ejemplo que cumple todo (perfil A), uno solo de
 # frontend (perfil B) y, sobre copias, un cambio a la vez que tiene que dar exactamente esa regla en FALTA.
 . "$(dirname "$0")/lib.sh"
@@ -13,6 +14,7 @@ escribe() { mkdir -p "$(dirname "$1")"; printf '%b' "$2" > "$1"; }
 # Repo de perfil A que cumple TODA la checklist estatica.
 repo_a() {
   local d=$1
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   mkdir -p "$d" && cd "$d" || return 1
   escribe .gitattributes '* text=auto\n*.sh text eol=lf\ncrontab text eol=lf\n'
   escribe .gitignore 'node_modules\n.env\n'
@@ -130,6 +132,7 @@ jobs:
 # Repo de perfil B: solo frontend en Vercel, sin Docker.
 repo_b() {
   local d=$1
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   mkdir -p "$d" && cd "$d" || return 1
   escribe .gitattributes '* text=auto\n*.sh text eol=lf\n'
   escribe .gitignore 'node_modules\n.vercel\n'
@@ -227,8 +230,7 @@ cambio "sin la rama develop" '5 rama develop' 'git push -q origin :develop'
 
 titulo "servicio extra con su par HOST_PORT / PORT y un solo entorno"
 rm -rf "$T/c"; cp -a "$A" "$T/c"; cp -a "$A.remote" "$T/c.remote"
-( cd "$T/c" && git remote set-url origin "$T/c.remote" && printf 'ADMIN_HOST_PORT=\nADMIN_PORT=\n' >> .env.example \
-  && printf '  panel:\n    ports:\n      - "127.0.0.1:${ADMIN_HOST_PORT:-8090}:${ADMIN_PORT:-8090}"\n' > /dev/null )
+( cd "$T/c" && git remote set-url origin "$T/c.remote" && printf 'ADMIN_HOST_PORT=\nADMIN_PORT=\n' >> .env.example )
 audita "$T/c"
 igual "un par ADMIN_HOST_PORT + ADMIN_PORT en .env.example: sale con 0" 0 "$ST"
 cumple "  cuenta como contrato de puertos" '2 nombres de puertos del contrato'

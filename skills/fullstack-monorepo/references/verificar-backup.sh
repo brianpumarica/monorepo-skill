@@ -13,6 +13,7 @@ MAX_HORAS="${MAX_HORAS:-36}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/$REPO_NAME}"
 AVISAR="${AVISAR:-/home/github-runner/avisar.sh}"
 
+# shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
 avisar() { [ -x "$AVISAR" ] && "$AVISAR" "$1" || true; }
 
 # Solo el nivel raiz: pre-deploy/ tiene su propia rotacion y no cuenta como backup diario.

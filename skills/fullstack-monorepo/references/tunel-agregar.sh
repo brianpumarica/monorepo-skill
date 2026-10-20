@@ -60,6 +60,7 @@ printf '%s' "$repo" | grep -qE '^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$' || die "no
 [ -f "$CONF_FILE" ] || die "falta $CONF_FILE (DOMINIO, TUNEL, ORIGINCERT): ver CI/CD §2.6."
 leer_conf() { grep -m1 "^$1=" "$CONF_FILE" | cut -d= -f2- | tr -d '"\r'; }
 DOMINIO=$(leer_conf DOMINIO); TUNEL=$(leer_conf TUNEL); ORIGINCERT=$(leer_conf ORIGINCERT)
+# shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
 [ -n "$DOMINIO" ] && [ -n "$TUNEL" ] || die "$CONF_FILE debe definir DOMINIO y TUNEL."
 printf '%s' "$DOMINIO" | grep -qE '^[a-z0-9.-]+$' || die "DOMINIO no valido en $CONF_FILE"
 host="api-$repo.$DOMINIO"
@@ -116,6 +117,7 @@ else
   [ -f "$envf" ] || die "no encuentro el .env del proyecto en $ENV_BASE/$repo_in/"
   puerto=$(leer_env BACKEND_HOST_PORT); prefijo=$(leer_env PROJECT_PREFIX)
   printf '%s' "$puerto" | grep -qE '^[0-9]{4,5}$' || die "BACKEND_HOST_PORT no valido en $envf: '$puerto'"
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   [ "$puerto" -ge 1024 ] && [ "$puerto" -le 65535 ] || die "puerto fuera de rango: $puerto"
   [ -n "$prefijo" ] || die "falta PROJECT_PREFIX en $envf"
   docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null | awk -F'|' -v p="$puerto" -v pre="$prefijo-" '
@@ -194,6 +196,7 @@ else
   echo "❌ cloudflared no quedo activo: se restaura la copia anterior." >&2
   cat "$bak" > "$CONFIG"
   systemctl restart cloudflared 2>/dev/null
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   systemctl is-active --quiet cloudflared 2>/dev/null && echo "↩️  Restaurado y activo." >&2 || echo "❌ Tampoco levanto con la copia: intervencion manual (journalctl -u cloudflared)." >&2
   exit 1
 fi

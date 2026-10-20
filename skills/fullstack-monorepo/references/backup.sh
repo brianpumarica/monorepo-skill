@@ -29,6 +29,7 @@ BACKUP_DIR="${BACKUP_DIR:-$HOME/backups/$REPO_NAME}"
 DATE=$(date +"%Y%m%d_%H%M%S")
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 # Avisar nunca debe romper el backup ni taparle su codigo de salida.
+# shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
 avisar() { [ -x "$AVISAR" ] && "$AVISAR" "$1" || true; }
 # EXIT cubre tanto los `exit 1` explicitos como cualquier comando que `set -e` aborte.
 # shellcheck disable=SC2154  # rc se asigna dentro del propio trap

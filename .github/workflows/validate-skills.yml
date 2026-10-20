@@ -41,8 +41,8 @@ jobs:
           done
 
       # ShellCheck viene preinstalado en los runners de GitHub (ubuntu-latest).
-      - name: ShellCheck (warning and above)
-        run: shellcheck -S warning skills/*/references/*.sh scripts/tests/*.sh scripts/tests/stubs/* scripts/tests/stubs-windows/*
+      - name: ShellCheck (info and above)
+        run: shellcheck -S info skills/*/references/*.sh scripts/tests/*.sh scripts/tests/stubs/* scripts/tests/stubs-windows/*
 
       - name: Script tests (stubbed docker / cloudflared / systemctl)
         run: bash scripts/tests/run.sh

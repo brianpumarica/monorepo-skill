@@ -32,6 +32,7 @@ repo=$(basename "$PWD")
 OKS=0; MALS=0; NAS=0; FASE=""
 # La fase es el primer caracter del nombre de la regla ("1 .gitattributes..." -> fase 1).
 titulo_fase() {
+  # shellcheck disable=SC2015  # A && B || C a proposito: el || cubre tambien el fallo de A
   [ "$PLANO" -eq 0 ] && [ "${1%% *}" != "$FASE" ] || return 0
   FASE=${1%% *}
   case "$FASE" in
@@ -186,7 +187,7 @@ else na "4 frontend con servidor propio (no tiene)"; fi
 if ! ls .github/workflows/*.yml >/dev/null 2>&1; then
   mal "5 workflow de despliegue" "(no hay .github/workflows/*.yml)"
 else
-  ALLWF=$(ls .github/workflows/*.yml | tr '\n' ' ')
+  ALLWF=$(find .github/workflows -maxdepth 1 -name '*.yml' | sort | tr '\n' ' ')
   # Node 20 en las acciones: checkout/setup-node @v4 dan el aviso de deprecacion en cada corrida.
   chk "5 wf: acciones sin el aviso de Node 20" "! grep -hE 'uses: *actions/(checkout|setup-node)@v[1-4]\b' $ALLWF"
   chk "5 wf: secretos solo por env:"           "! grep -nE 'run:.*secrets\.|--[a-z-]+=.*secrets\.' $ALLWF"
